@@ -5,5 +5,56 @@ description = "Add your description here"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
-requires-python = ">=3.14.2"
+requires-python = ">=3.14"
 dependencies = []
+
+[project.optional-dependencies]
+dev = ["ruff>=0.14.10"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    "E",   # Pycodestyle: Basic style errors (indentation, whitespace, etc.)
+    "W",   # Pycodestyle: Style warnings and recommendations
+    "F",   # Pyflakes: Logical and syntax errors (unused imports, undefined names)
+    "I",   # Isort: Import sorting, grouping and formatting
+    "UP",  # Pyupgrade: Modernize Python syntax to target version
+    "C4",  # Comprehensions: Optimize list/dict/set comprehensions and generators
+    "T10", # Debugger: Forbid debugger calls (pdb, breakpoint) in production code
+    "PL",  # Pylint: Strict rules (naming, complexity, argument counts, design)
+    "RUF", # Ruff-specific: Opinionated best practices and additional checks
+    "S",   # Bandit: Security-focused checks for common vulnerabilities
+    "B",   # Bugbear: Catch common bugs and anti-patterns
+    "A",   # Builtins: Prevent shadowing of Python built-in names
+    "EM",  # Error messages: Ensure exceptions have non-empty, descriptive messages
+    "ISC", # Implicit string concatenation: Require explicit '+' for string joining
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+required-imports = ["from __future__ import annotations"]
+combine-as-imports = true
+force-sort-within-sections = true
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+preview = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+dev-mode-dirs = ["src"]
