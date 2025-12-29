@@ -13,7 +13,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_NO_DEV=1
 
 # Cache dependencies (cacheable layer)
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project
 

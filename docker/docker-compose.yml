@@ -1,10 +1,26 @@
 # docker/docker-compose.yml
 
-name: ${PROJECT:-my-awesome-app}
+name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}
+
+secrets:
+  db_password:
+    file: ${DB_PASSWORD_FILE:-./secrets/db_password.txt}
+  pgadmin_password:
+    file: ${PGADMIN_PASSWORD_FILE:-./secrets/pgadmin_password.txt}
+
+networks:
+  internal:
+    driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_internal
+
+volumes:
+  pgdata:
+    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_pgdata
 
 services:
   db:
     image: postgres:18.1-bookworm
+    profiles: ["db", "dev", "prod"]
     restart: unless-stopped
     hostname: db
     secrets:
@@ -18,9 +34,7 @@ services:
       - pgdata:/var/lib/postgresql/data
     networks:
       internal:
-        aliases:
-          - database
-          - postgres
+        aliases: [database, postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-appuser} -d ${DB_NAME:-appdb}"]
       interval: 60s
@@ -49,12 +63,10 @@ services:
       DB_USER: ${DB_USER:-appuser}
       DB_PASSWORD_FILE: /run/secrets/db_password
     volumes: []
-    networks:
-      - internal
+    networks: [internal]
     depends_on:
       db:
         condition: service_healthy
-    healthcheck: []
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -62,18 +74,3 @@ services:
     cap_add:
       - SETGID
       - SETUID
-
-secrets:
-  db_password:
-    file: ${DB_PASSWORD_FILE:-./secrets/db_password.txt}
-  pgadmin_password:
-    file: ${PGADMIN_PASSWORD_FILE:-./secrets/pgadmin_password.txt}
-
-networks:
-  internal:
-    driver: bridge
-    name: ${PROJECT:-my-awesome-app}_internal
-
-volumes:
-  pgdata:
-    name: ${PROJECT:-my-awesome-app}_pgdata

@@ -1,19 +1,21 @@
 # docker/docker-compose.prod.yml
 
+volumes:
+  pgadmin_data:
+    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_pgadmin_data
+
 services:
   app:
+    profiles: ["prod"]
     read_only: true
+    # tmpfs:
+      # - /tmp
     security_opt:
-      - no-new-privileges:true
       - seccomp:default
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETGID
-      - SETUID
 
   pgadmin:
     image: dpage/pgadmin4:latest
+    profiles: ["prod"]
     restart: unless-stopped
     secrets:
       - pgadmin_password
@@ -24,12 +26,10 @@ services:
       - "${PGADMIN_PORT:-8080}:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - internal
+    networks: [internal]
     depends_on:
       db:
         condition: service_healthy
-    healthcheck: []
     security_opt:
       - no-new-privileges:true
       - seccomp:default
@@ -40,7 +40,3 @@ services:
       - SETGID
       - SETUID
       - DAC_OVERRIDE
-
-volumes:
-  pgadmin_data:
-    name: ${PROJECT:-my-awesome-app}_pgadmin_data

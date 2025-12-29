@@ -1,7 +1,12 @@
 # docker/docker-compose.dev.yml
 
+volumes:
+  pgadmin_data:
+    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_pgadmin_data
+
 services:
   app:
+    profiles: ["dev"]
     volumes:
       - ../src:/app/src:rw,cached
     read_only: false
@@ -12,10 +17,10 @@ services:
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: 1
       DEBUG: 1
-    profiles: ["dev"]
 
   pgadmin:
     image: dpage/pgadmin4:latest
+    profiles: ["dev"]
     restart: unless-stopped
     hostname: pgadmin
     secrets:
@@ -34,10 +39,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    healthcheck: []
     security_opt: []
-    profiles: ["dev"]
-
-volumes:
-  pgadmin_data:
-    name: ${PROJECT:-my-awesome-app}_pgadmin_data
+    cap_drop: []
+    cap_add: []
