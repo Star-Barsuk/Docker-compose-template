@@ -1,0 +1,65 @@
+# docker/docker-compose.yml
+
+services:
+  db:
+    image: postgres:18.1-alpine  # Alpine for dev
+    restart: always
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./secrets/db_password.txt:/run/secrets/db_password:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-appuser} -d ${POSTGRES_DB:-appdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./secrets/db_password.txt:/run/secrets/db_password:ro
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-appdb}
+      DB_USER: ${POSTGRES_USER:-appuser}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    networks:
+      - internal
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: always
+    user: "0:0"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./secrets/pgadmin_password.txt:/var/lib/pgadmin/pgadmin_password.txt:ro
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /var/lib/pgadmin/pgadmin_password.txt
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+  pgadmin-data:

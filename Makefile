@@ -1,3 +1,5 @@
+# Makefile
+
 # === Config ===
 PROJECT := database-module
 PYTHON := uv run python
@@ -18,32 +20,55 @@ NC=\033[0m
 
 # === Targets ===
 .PHONY: help \
-		install dev-install uninstall uninstall-dev \
-		run lint format fix check lint-changed \
-		test clean
+        install install-dev uninstall \
+        run lint format fix check lint-changed \
+        test clean \
+        docker-generate-secrets docker-build \
+        docker-up-dev docker-up-prod docker-down docker-clean \
+        docker-logs docker-log-app docker-log-db docker-log-pgadmin docker-log-tail \
+        docker-shell docker-exec docker-bash docker-python \
+        docker-ps docker-stats docker-inspect-app \
+        docker-prune docker-images docker-volumes
 
 # --- Help ---
 help:
 	@echo "$(WHITE)🚀 $(PROJECT) Development Toolkit$(NC)"
 	@echo
 	@echo "$(ORANGE)■ Environment$(NC)"
-	@printf "  $(GREEN)install$(NC)%-9s Install base dependencies\n" ""
-	@printf "  $(GREEN)install-dev$(NC)%-5s Install base + dev tools\n" ""
-	@printf "  $(RED)uninstall$(NC)%-7s Remove virtual environments\n" ""
+	@printf " $(GREEN)install$(NC)%-18s Install base dependencies\n" ""
+	@printf " $(GREEN)install-dev$(NC)%-13s Install base + dev tools\n" ""
+	@printf " $(RED)uninstall$(NC)%-16s Remove virtual environments\n" ""
 	@echo
 	@echo "$(ORANGE)■ Development$(NC)"
-	@printf "  $(CYAN)run$(NC)%-13s Run app (src/main.py)\n" ""
-	@printf "  $(CYAN)lint$(NC)%-12s Lint all Python files\n" ""
-	@printf "  $(CYAN)format$(NC)%-10s Format code\n" ""
-	@printf "  $(CYAN)fix$(NC)%-13s Auto-fix issues\n" ""
-	@printf "  $(CYAN)check$(NC)%-11s CI checks\n" ""
-	@printf "  $(CYAN)lint-changed$(NC)%-4s Lint changed files\n" ""
+	@printf " $(CYAN)run$(NC)%-22s Run app locally (src/main.py)\n" ""
+	@printf " $(CYAN)lint$(NC)%-21s Lint all Python files\n" ""
+	@printf " $(CYAN)format$(NC)%-19s Format code\n" ""
+	@printf " $(CYAN)fix$(NC)%-22s Auto-fix issues\n" ""
+	@printf " $(CYAN)check$(NC)%-20s CI checks (lint + format)\n" ""
+	@printf " $(CYAN)lint-changed$(NC)%-12s Lint changed files\n" ""
+	@echo
+	@echo "$(ORANGE)■ Docker$(NC)"
+	@printf " $(BLUE)docker-generate-secrets$(NC)%-4s Generate strong passwords\n" ""
+	@printf " $(BLUE)docker-build$(NC)%-14s Build app image\n" ""
+	@printf " $(BLUE)docker-up-dev$(NC)%-11s Start dev stack (alpine DB)\n" ""
+	@printf " $(BLUE)docker-up-prod$(NC)%-10s Start prod stack (bookworm DB)\n" ""
+	@printf " $(BLUE)docker-down$(NC)%-13s Stop all containers\n" ""
+	@printf " $(BLUE)docker-clean$(NC)%-12s Stop + remove volumes\n" ""
+	@printf " $(BLUE)docker-logs$(NC)%-14s Follow all logs\n" ""
+	@printf " $(BLUE)docker-log-app$(NC)%-10s Follow app logs\n" ""
+	@printf " $(BLUE)docker-log-db$(NC)%-11s Follow DB logs\n" ""
+	@printf " $(BLUE)docker-log-pgadmin$(NC)%-4s Follow pgAdmin logs\n" ""
+	@printf " $(BLUE)docker-shell$(NC)%-11s Shell in app container\n" ""
+	@printf " $(BLUE)docker-exec cmd='...'%-4s Run command in app\n" ""
+	@printf " $(BLUE)docker-ps$(NC)%-17s Show container status\n" ""
+	@printf " $(BLUE)docker-stats$(NC)%-14s Live resource usage\n" ""
 	@echo
 	@echo "$(ORANGE)■ Maintenance$(NC)"
-	@printf "  $(MAGENTA)test$(NC)%-12s Run tests\n" ""
-	@printf "  $(MAGENTA)clean$(NC)%-11s Clean project caches\n" ""
+	@printf " $(MAGENTA)test$(NC)%-21s Run tests (placeholder)\n" ""
+	@printf " $(MAGENTA)clean$(NC)%-20s Clean Python caches\n" ""
+	@printf " $(MAGENTA)docker-prune$(NC)%-12s Prune unused Docker resources\n" ""
 	@echo
-	@echo "$(GRAY)▶ $(WHITE)make install$(GRAY) to start$(NC)"
+	@echo "$(GRAY)▶ $(WHITE)make install$(GRAY) to start • $(WHITE)make docker-up-dev$(GRAY) for containers$(NC)"
 
 # --- Setup ---
 install:
@@ -58,7 +83,7 @@ install-dev:
 
 # --- Uninstall ---
 uninstall:
-	@echo "$(RED)🗑️  Removing virtual environments...$(NC)"
+	@echo "$(RED)🗑️ Removing virtual environments...$(NC)"
 	rm -rf .venv venv env >/dev/null 2>&1 || true
 	@echo "$(GREEN)✅ Virtual environments removed.$(NC)"
 
@@ -80,23 +105,23 @@ format:
 
 check:
 	@sh -c '\
-	echo "$(CYAN)📊 Static analysis (CI mode)...$(NC)"; \
-	if $(RUFF) check . --output-format=github && $(RUFF) format . --check; then \
-		echo "$(GREEN)✅ All checks passed.$(NC)"; \
-	else \
-		echo "$(RED)❌ Checks failed.$(NC)" >&2; \
-		exit 1; \
-	fi'
+		echo "$(CYAN)📊 Static analysis (CI mode)...$(NC)"; \
+		if $(RUFF) check . --output-format=github && $(RUFF) format . --check; then \
+			echo "$(GREEN)✅ All checks passed.$(NC)"; \
+		else \
+			echo "$(RED)❌ Checks failed.$(NC)" >&2; \
+			exit 1; \
+		fi'
 
 fix:
 	@sh -c '\
-	echo "$(YELLOW)⚡ Auto-fixing issues...$(NC)"; \
-	if $(RUFF) check . --fix --unsafe-fixes && $(RUFF) format .; then \
-		echo "$(GREEN)✨ All fixable issues resolved.$(NC)"; \
-	else \
-		echo "$(YELLOW)⚠ Some issues require manual fix.$(NC)" >&2; \
-		exit 1; \
-	fi'
+		echo "$(YELLOW)⚡ Auto-fixing issues...$(NC)"; \
+		if $(RUFF) check . --fix --unsafe-fixes && $(RUFF) format .; then \
+			echo "$(GREEN)✨ All fixable issues resolved.$(NC)"; \
+		else \
+			echo "$(YELLOW)⚠ Some issues require manual fix.$(NC)" >&2; \
+			exit 1; \
+		fi'
 
 # --- Smart linting ---
 lint-changed:
@@ -145,43 +170,137 @@ clean:
 	\) -delete 2>/dev/null || true
 	@echo "$(GREEN)✅ Clean complete.$(NC)"
 
-# --- Variables ---
-# DOCKER_DIR := docker
-# DEV_PROJECT := cli-logger_dev
-# PROD_PROJECT := cli-logger
+# === Docker Targets ===
 
-# BASE_COMPOSE := $(DOCKER_DIR)/docker-compose.yml
-# DEV_COMPOSE := $(DOCKER_DIR)/docker-compose.dev.yml
+# --- Secrets ---
+docker-generate-secrets:
+	@echo "$(GREEN)🔑 Generating strong random secrets...$(NC)"
+	@mkdir -p docker/secrets
+	@openssl rand -base64 32 > docker/secrets/db_password.txt
+	@openssl rand -base64 32 > docker/secrets/pgadmin_password.txt
+	@chmod 600 docker/secrets/*.txt
+	@echo "$(GREEN)✅ Secrets created in docker/secrets/ (never commit!)$(NC)"
 
-# --- Dev ---
-# dev up-dev:
-# 	docker compose -f $(BASE_COMPOSE) -f $(DEV_COMPOSE) -p $(DEV_PROJECT) up --build -d --wait --wait-timeout 240
+# --- Build ---
+docker-build:
+	@echo "$(CYAN)🏗️ Building application image...$(NC)"
+	docker compose -f docker/docker-compose.yml build app
 
-# down-dev:
-# 	docker compose -f $(BASE_COMPOSE) -f $(DEV_COMPOSE) -p $(DEV_PROJECT) down --remove-orphans -v
+# --- Up/Down ---
+docker-up-dev:
+	@make docker-generate-secrets || true
+	@echo "$(CYAN)🚀 Starting development stack (alpine DB, mounted secrets)...$(NC)"
+	docker compose -f docker/docker-compose.yml up -d
 
-# status-dev:
-# 	docker compose -f $(BASE_COMPOSE) -f $(DEV_COMPOSE) -p $(DEV_PROJECT) ps
+docker-up-prod:
+	@make docker-generate-secrets
+	@make docker-build
+	@echo "$(CYAN)🏭 Starting production stack (bookworm DB, mounted secrets)...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 
-# logs-dev:
-# 	docker compose -f $(BASE_COMPOSE) -f $(DEV_COMPOSE) -p $(DEV_PROJECT) logs -f app
+docker-down:
+	@echo "$(RED)🛑 Stopping all containers...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down || \
+	docker compose -f docker/docker-compose.yml down
 
-# --- Utilities ---
-# app-bash:
-# 	docker compose -f $(BASE_COMPOSE) -f $(DEV_COMPOSE) -p $(DEV_PROJECT) exec app bash
+docker-clean:
+	@make docker-down
+	@echo "$(MAGENTA)🧹 Removing volumes and orphaned containers...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down -v --remove-orphans || \
+	docker compose -f docker/docker-compose.yml down -v --remove-orphans
 
-# db-shell:
-# 	docker compose -f $(BASE_COMPOSE) -f $(DEV_COMPOSE) -p $(DEV_PROJECT) exec db mysql -u root -prootpass
+# --- Logs ---
+docker-logs:
+	@echo "$(BLUE)📋 Following all container logs...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs -f || \
+	docker compose -f docker/docker-compose.yml logs -f
 
-# # --- Prod ---
-# prod up-prod:
-# 	docker compose -f $(BASE_COMPOSE) -p $(PROD_PROJECT) up --build -d --wait --wait-timeout 60
+docker-log-app:
+	@echo "$(BLUE)📱 Following app logs...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs -f app || \
+	docker compose -f docker/docker-compose.yml logs -f app
 
-# down-prod:
-# 	docker compose -f $(BASE_COMPOSE) -p $(PROD_PROJECT) down --remove-orphans -v
+docker-log-db:
+	@echo "$(BLUE)🗄️ Following database logs...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs -f db || \
+	docker compose -f docker/docker-compose.yml logs -f db
 
-# status-prod:
-# 	docker compose -f $(BASE_COMPOSE) -p $(PROD_PROJECT) ps
+docker-log-pgadmin:
+	@echo "$(BLUE)🖥️ Following pgAdmin logs...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs -f pgadmin || \
+	docker compose -f docker/docker-compose.yml logs -f pgadmin
 
-# logs-prod:
-# 	docker compose -f $(BASE_COMPOSE) -p $(PROD_PROJECT) logs -f app
+docker-log-tail:
+	@echo "$(BLUE)📜 Last 100 lines of app logs...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=100 app || \
+	docker compose -f docker/docker-compose.yml logs --tail=100 app
+
+# --- Container Access ---
+docker-shell:
+	@echo "$(BLUE)🐚 Opening shell in running app container...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec app sh || \
+	docker compose -f docker/docker-compose.yml exec app sh
+
+docker-bash:
+	@echo "$(BLUE)🐚 Opening bash in running app container...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec app bash || \
+	docker compose -f docker/docker-compose.yml exec app bash
+
+docker-python:
+	@echo "$(BLUE)🐍 Starting Python REPL in app container...$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec app python || \
+	docker compose -f docker/docker-compose.yml exec app python
+
+docker-exec:
+	@if [ -z "$(cmd)" ]; then \
+		echo "$(RED)❌ Usage: make docker-exec cmd='your command here'$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)⚙️ Executing in app container: $(cmd)$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec app $(cmd) || \
+	docker compose -f docker/docker-compose.yml exec app $(cmd)
+
+# --- Inspection ---
+docker-ps:
+	@echo "$(BLUE)📊 Container status:$(NC)"
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps || \
+	docker compose -f docker/docker-compose.yml ps
+
+docker-stats:
+	@echo "$(BLUE)📈 Live container statistics (Ctrl+C to stop):$(NC)"
+	docker stats $$(docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps -q)
+
+docker-inspect-app:
+	@echo "$(BLUE)🔍 App container details:$(NC)"
+	@ID=$$(docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps -q app || docker compose -f docker/docker-compose.yml ps -q app); \
+	if [ -z "$$ID" ]; then \
+		echo "$(RED)App container not found$(NC)"; \
+	else \
+		docker inspect "$$ID" | jq -r '{Name: .Name, Status: .State.Status, IP: .NetworkSettings.Networks[].IPAddress // "N/A", Ports: .NetworkSettings.Ports}' 2>/dev/null || \
+		docker inspect "$$ID"; \
+	fi
+
+# --- Maintenance ---
+docker-prune:
+	@echo "$(RED)🗑️ Pruning unused Docker resources...$(NC)"
+	@echo "$(YELLOW)This will remove:$(NC)"
+	@echo " • Stopped containers"
+	@echo " • Unused networks"
+	@echo " • Dangling images"
+	@echo " • Build cache"
+	@echo
+	@read -p "$(YELLOW)Continue? [y/N]: $(NC)" confirm; \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		docker system prune -a --volumes -f; \
+		echo "$(GREEN)✅ Prune complete.$(NC)"; \
+	else \
+		echo "$(GRAY)Cancelled.$(NC)"; \
+	fi
+
+docker-images:
+	@echo "$(BLUE)🖼️ Docker images in project:$(NC)"
+	docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}"
+
+docker-volumes:
+	@echo "$(BLUE)💾 Docker volumes:$(NC)"
+	docker volume ls
