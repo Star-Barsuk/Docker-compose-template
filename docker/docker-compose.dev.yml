@@ -23,6 +23,7 @@ services:
     profiles: ["dev"]
     restart: unless-stopped
     hostname: pgadmin
+    user: "0:0"  # <-- FIX
     secrets:
       - pgadmin_password
     environment:
