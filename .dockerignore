@@ -1,0 +1,36 @@
+# docker/.dockerignore
+
+# Python cache files
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.black_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Build artifacts and lock files
+# uv.lock
+poetry.lock
+dist/
+build/
+*.egg-info/
+
+# IDE and editor files
+.vscode/
+.idea/
+
+# Local config files
+config/local_*.json
+config/*.local
+config/*_local.json
+
+# Git-related files
+.git/
+.gitignore
+
+# Secrets
+docker/secrets/*

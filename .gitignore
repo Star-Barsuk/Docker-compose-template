@@ -1,28 +1,48 @@
-# Virtual environments
-.venv/
-env/
-venv/
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
 # IDE
 .vscode/
 .idea/
 *.swp
 .DS_Store
 
-# Logs and databases
-*.log
-*.sqlite3
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
 
-# Env files
-.env
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv & build
+.uv/
+uv-build/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Environment files
+.env.dev
+.env.prod
 .env.local
+.env.*.local
+
+# Environment files - But allow example files
+!.env.dev.example
+!.env.prod.example
+
+# Secrets
+docker/secrets/*.txt
+
+# Secrets - But allow example files
+!docker/secrets/*.example.txt

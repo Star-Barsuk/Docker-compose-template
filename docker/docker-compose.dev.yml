@@ -1,0 +1,45 @@
+# docker/docker-compose.dev.yml
+
+volumes:
+  pgadmin_data:
+    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_pgadmin_data
+
+services:
+  app:
+    profiles: ["dev"]
+    volumes:
+      - ../src:/app/src:rw,cached
+    read_only: false
+    security_opt: []
+    cap_drop: []
+    cap_add: []
+    environment:
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: 1
+      DEBUG: 1
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    profiles: ["dev"]
+    restart: unless-stopped
+    hostname: pgadmin-dev
+    user: "0:0"  # <-- FIX
+    secrets:
+      - pgadmin_password
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin-dev@example.com}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
+    ports:
+      - "${PGADMIN_PORT:-8080}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      internal:
+        aliases:
+          - pgadmin.dev
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt: []
+    cap_drop: []
+    cap_add: []
