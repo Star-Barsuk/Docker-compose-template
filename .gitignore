@@ -46,3 +46,8 @@ docker/secrets/*.txt
 
 # Secrets - But allow example files
 !docker/secrets/*.example.txt
+
+# Context
+.contexignore
+scripts/collect_context.sh
+context.txt
