@@ -10,7 +10,7 @@ PROJECT ?= database-module
 
 PYTHON := uv run python
 RUFF   := uv run ruff
-DC     := docker compose
+DC     := docker compose --env-file .env
 DOCKER := docker
 
 # ---------------------------------------------------------
