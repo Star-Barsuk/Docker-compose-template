@@ -34,4 +34,7 @@ build/
 # Env files & secrets
 .env
 .env.local
-docker/secrets/*
+
+# Secrets
+docker/secrets/*.txt
+!docker/secrets/*.example.txt
