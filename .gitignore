@@ -48,6 +48,6 @@ docker/secrets/*.txt
 !docker/secrets/*.example.txt
 
 # Context
-.contexignore
+.contextignore
 scripts/collect_context.sh
 context.txt
