@@ -22,12 +22,12 @@ services:
     image: dpage/pgadmin4:latest
     profiles: ["dev"]
     restart: unless-stopped
-    hostname: pgadmin
+    hostname: pgadmin-dev
     user: "0:0"  # <-- FIX
     secrets:
       - pgadmin_password
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin-dev@example.com}
       PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
     ports:
       - "${PGADMIN_PORT:-8080}:80"
@@ -36,7 +36,7 @@ services:
     networks:
       internal:
         aliases:
-          - pgadmin.local
+          - pgadmin.dev
     depends_on:
       db:
         condition: service_healthy

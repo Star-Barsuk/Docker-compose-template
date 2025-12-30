@@ -18,6 +18,32 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_pgdata
 
 services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    secrets:
+      - db_password
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-appdb}
+      DB_USER: ${DB_USER:-appuser}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    volumes: []
+    networks: [internal]
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+
   db:
     image: postgres:18.1-bookworm
     profiles: ["db", "dev", "prod"]
@@ -48,29 +74,3 @@ services:
       - SETGID
       - SETUID
       - DAC_OVERRIDE
-
-  app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    restart: unless-stopped
-    secrets:
-      - db_password
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-appdb}
-      DB_USER: ${DB_USER:-appuser}
-      DB_PASSWORD_FILE: /run/secrets/db_password
-    volumes: []
-    networks: [internal]
-    depends_on:
-      db:
-        condition: service_healthy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETGID
-      - SETUID
