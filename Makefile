@@ -1,9 +1,8 @@
 # =========================================================
-# Project: database-module
-# Docker Makefile — project-specific commands
+# Makefile
 # =========================================================
 
-PROJECT ?= database-module
+PROJECT ?= my-awesome-app
 
 # ---------------------------------------------------------
 # Tools
