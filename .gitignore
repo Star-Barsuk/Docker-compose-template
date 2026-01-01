@@ -2,20 +2,42 @@
 .vscode/
 .idea/
 *.swp
+*.swo
+
+# OS
 .DS_Store
+Thumbs.db
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/
+*.so
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
 .coverage
 .coverage.*
 coverage.xml
 coverage.json
 htmlcov/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
 
 # Virtual environments
 .venv/
@@ -26,25 +48,45 @@ env/
 .uv/
 uv-build/
 
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
+# Cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 # Environment files
-*.env.dev
-*.env.prod
-*.env.local
-*.env.*.local
-!*.env.dev.example
-!*.env.prod.example
-
-# Active environment
+.env
+.env.*
+!.env.dist
+!*.env.*.example
 .active-env
 
+# Docker
+docker-compose.override.yml
+docker-compose.*.local.yml
+
 # Secrets
-docker/secrets/*.txt
-!docker/secrets/*.example.txt
+**/secrets/*
+!**/secrets/*.example.txt
+*.key
+*.pem
+*.cert
+*.crt
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Backup files
+*.bak
+backups/
+
+# Temporary files
+tmp/
+temp/
 
 # Context
 .contextignore
