@@ -18,7 +18,6 @@ SHELL := /bin/bash
 ACTIVE_ENV_FILE := .active-env
 ENVS_DIR := envs
 
-# Автоматически находим все файлы окружений
 ENV_FILES := $(wildcard $(ENVS_DIR)/.env.*)
 ENV_NAMES := $(sort $(shell \
 	find $(ENVS_DIR) -maxdepth 1 -name '.env.*' -type f 2>/dev/null | \
@@ -27,13 +26,11 @@ ENV_NAMES := $(sort $(shell \
 	grep -v '\.example$$' \
 ))
 
-# Проверяем наличие файлов окружений
 ifeq ($(strip $(ENV_NAMES)),)
     $(warning No environment files found in $(ENVS_DIR)/.env.*)
     $(warning Create files like: $(ENVS_DIR)/.env.dev, $(ENVS_DIR)/.env.prod)
 endif
 
-# Получаем активное окружение (по умолчанию: dev)
 CURRENT_ENV := $(strip $(shell \
 	if [ -f "$(ACTIVE_ENV_FILE)" ]; then \
 		cat "$(ACTIVE_ENV_FILE)" 2>/dev/null; \
@@ -46,7 +43,6 @@ CURRENT_ENV := $(strip $(shell \
 	fi \
 ))
 
-# Валидация активного окружения
 ifneq ($(filter $(CURRENT_ENV),$(ENV_NAMES)),)
     ENV_FILE := $(ENVS_DIR)/.env.$(CURRENT_ENV)
 else
@@ -61,7 +57,6 @@ else
     endif
 endif
 
-# Получаем имя проекта из .env файла
 COMPOSE_PROJECT_NAME := $(strip $(shell \
 	if [ -f "$(ENV_FILE)" ]; then \
 		grep -E '^COMPOSE_PROJECT_NAME=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'; \
@@ -84,7 +79,7 @@ DC := $(DOCKER) compose --env-file $(ENV_FILE)
 # Secrets
 # ---------------------------------------------------------
 
-SECRETS_DIR := secrets
+SECRETS_DIR := docker/secrets
 DB_SECRET   := $(SECRETS_DIR)/db_password.txt
 
 # ---------------------------------------------------------
@@ -250,35 +245,59 @@ env-status:
 $(foreach env,$(ENV_NAMES),$(eval env-$(env): ; @$(call save_active_env,$(env))))
 $(foreach env,$(ENV_NAMES),$(eval .PHONY: env-$(env)))
 
-# Динамический выбор окружения
-env:
-	@printf '%b' "$(CYAN)🔄 Switching environment$(NC)\n"
-	@printf '%b' "Current environment: $(GREEN)$(CURRENT_ENV)$(NC)\n\n"
-	@printf '%b' "Available environments:\n"
-	@counter=1; \
-	for env in $(ENV_NAMES); do \
-		printf '%b' "  $$counter) $(GREEN)$$env$(NC)\n"; \
-		counter=$$((counter + 1)); \
-	done
-	@printf '\n'
-	@printf '%b' "$(YELLOW)Choice [1-$$((counter - 1))] (Enter=keep current): $(NC)"
-	@read -r choice; \
-	if [ -n "$$choice" ]; then \
-		counter=1; \
-		for env in $(ENV_NAMES); do \
-			if [ "$$choice" = "$$counter" ] || [ "$$choice" = "$$env" ]; then \
-				$(call save_active_env,$$env); \
-				printf '\n'; \
-				$(call show_env_info); \
+# Скрипт переключения окружения (интерактивная часть)
+define ENV_SWITCH_SCRIPT
+	@bash -c '\
+		echo -e "$(CYAN)🔄 Switching environment$(NC)"; \
+		echo -e "Current environment: $(GREEN)$(CURRENT_ENV)$(NC)"; \
+		echo; \
+		if [ -z "$(ENV_NAMES)" ]; then \
+			echo -e "$(RED)❌ No environment files found in $(ENVS_DIR)/$(NC)"; \
+			echo " Create at least one file like $(ENVS_DIR)/.env.dev"; \
+			exit 1; \
+		fi; \
+		echo -e "$(CYAN)Available environments:$(NC)"; \
+		set -- $(ENV_NAMES); \
+		idx=1; \
+		for env in $$@; do \
+			if [ "$$env" = "$(CURRENT_ENV)" ]; then \
+				printf " %3d) $(GREEN)%s$(NC) $(YELLOW)[ACTIVE]$(NC)\n" $$idx "$$env"; \
+			else \
+				printf " %3d) $(BLUE)%s$(NC)\n" $$idx "$$env"; \
+			fi; \
+			idx=$$((idx + 1)); \
+		done; \
+		echo; \
+		printf "$(YELLOW)Enter number or name (or press Enter to keep current): $(NC)"; \
+		read -r choice; \
+		if [ -z "$$choice" ]; then \
+			echo -e "\n$(GREEN)✓ Keeping current environment: $(CURRENT_ENV)$(NC)"; \
+			exit 0; \
+		fi; \
+		set -- $(ENV_NAMES); \
+		idx=1; \
+		selected=""; \
+		for env in $$@; do \
+			if [ "$$choice" = "$$idx" ] || [ "$$choice" = "$$env" ]; then \
+				selected="$$env"; \
 				break; \
 			fi; \
-			counter=$$((counter + 1)); \
+			idx=$$((idx + 1)); \
 		done; \
-	else \
-		printf '%b' "\nKeeping current environment: $(GREEN)$(CURRENT_ENV)$(NC)\n"; \
-	fi
+		if [ -n "$$selected" ]; then \
+			echo "$$selected" > "$(ACTIVE_ENV_FILE)"; \
+			echo -e "\n$(GREEN)✓ Active environment set to: $$selected$(NC)"; \
+		else \
+			echo -e "\n$(RED)❌ Invalid choice: $$choice$(NC)"; \
+			echo " Available: $(ENV_NAMES)"; \
+			exit 1; \
+		fi'
+endef
 
-# Показать все доступные окружения
+env:
+	@$(ENV_SWITCH_SCRIPT) || true
+	@$(call show_env_info)
+
 env-list:
 	@printf '%b' "$(CYAN)📋 Available environments in $(ENVS_DIR)/:$(NC)\n"
 	@if [ -z "$(ENV_NAMES)" ]; then \
@@ -307,7 +326,6 @@ env-list:
 		done; \
 	fi
 
-# Проверка файлов окружения
 test-env-files:
 	@printf '%b' "$(CYAN)🔍 Checking environment files in $(ENVS_DIR)/...$(NC)\n"
 	@if [ -z "$(ENV_NAMES)" ]; then \
@@ -356,7 +374,6 @@ generate-secrets:
 		printf '%b' "$(GREEN)✓ All secrets already exist$(NC)\n"; \
 	fi
 
-# Проверка секретов
 check-secrets:
 	@printf '%b' "$(CYAN)🔍 Checking secrets...$(NC)\n"
 	@if [ ! -d "$(SECRETS_DIR)" ]; then \
