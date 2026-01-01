@@ -20,8 +20,8 @@ ENV_FILES := .env.dev .env.prod
 
 # Validate files exist
 $(foreach env_file,$(ENV_FILES),\
-    $(if $(wildcard $(env_file)),,\
-        $(warning Environment file $(env_file) not found. Create it from template)))
+	$(if $(wildcard $(env_file)),,\
+		$(warning Environment file $(env_file) not found. Create it from template)))
 
 # Get active environment (default: dev)
 CURRENT_ENV := $(strip $(shell if [ -f "$(ACTIVE_ENV_FILE)" ]; then cat "$(ACTIVE_ENV_FILE)" 2>/dev/null; else echo "dev"; fi))
@@ -29,16 +29,16 @@ CURRENT_ENV := $(strip $(shell if [ -f "$(ACTIVE_ENV_FILE)" ]; then cat "$(ACTIV
 # Validate env
 VALID_ENVS := dev prod
 ifneq ($(filter $(CURRENT_ENV),$(VALID_ENVS)),)
-    ENV_FILE := .env.$(CURRENT_ENV)
-    COMPOSE_PROJECT_NAME := $(strip $(shell \
-        if [ -f "$(ENV_FILE)" ]; then \
-            grep -E '^COMPOSE_PROJECT_NAME=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'; \
-        fi \
-    ))
+	ENV_FILE := .env.$(CURRENT_ENV)
+	COMPOSE_PROJECT_NAME := $(strip $(shell \
+		if [ -f "$(ENV_FILE)" ]; then \
+			grep -E '^COMPOSE_PROJECT_NAME=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'; \
+		fi \
+	))
 endif
 
 ifeq ($(COMPOSE_PROJECT_NAME),)
-    COMPOSE_PROJECT_NAME := $(PROJECT)-$(CURRENT_ENV)
+	COMPOSE_PROJECT_NAME := $(PROJECT)-$(CURRENT_ENV)
 endif
 
 # ---------------------------------------------------------
@@ -102,6 +102,101 @@ define show_env_info
 	fi
 endef
 
+define check_resource_existence
+	@RESOURCE_EXISTS=$$( $(DOCKER) $(1) "$(2)" > /dev/null 2>&1 && echo "1" || echo "0" ); \
+	if [ "$$RESOURCE_EXISTS" -eq 1 ]; then \
+		$(3); \
+	else \
+		$(4); \
+	fi
+endef
+
+define remove_resource
+	@printf '%b' "$(MAGENTA)🧹 Removing $(1) for project: $(2)$(NC)\n"
+	@REMOVED=0; \
+	for resource in $$($(DOCKER) $(3) --filter "name=^$(2)" --format "{{.$(4)}}" 2>/dev/null); do \
+		if $(DOCKER) $(5) "$$resource" > /dev/null 2>&1; then \
+			printf '%b' "  $(GREEN)✅ Removed: $$resource$(NC)\n"; \
+			REMOVED=$$((REMOVED + 1)); \
+		else \
+			printf '%b' "  $(YELLOW)⚠ Could not remove: $$resource$(NC)\n"; \
+		fi; \
+	done; \
+	if [ $$REMOVED -eq 0 ]; then \
+		printf '%b' "  $(GRAY)ℹ No $(1) found for $(2)$(NC)\n"; \
+	fi
+endef
+
+define remove_project_volumes
+	$(call remove_resource,volumes,$(1),volume ls -q,Name,volume rm -f)
+endef
+
+define remove_project_images
+	@printf '%b' "$(RED)🔥 Removing images for $(1)...$(NC)\n"
+	@IMAGES_REMOVED=0; \
+	APP_IMAGE=$(1)-app:latest; \
+	if $(DOCKER) image inspect "$$APP_IMAGE" > /dev/null 2>&1; then \
+		if $(DOCKER) rmi -f "$$APP_IMAGE" > /dev/null 2>&1; then \
+			printf '%b' "  $(GREEN)✅ Removed: $$APP_IMAGE$(NC)\n"; \
+			IMAGES_REMOVED=$$((IMAGES_REMOVED + 1)); \
+		else \
+			printf '%b' "  $(YELLOW)⚠ Could not remove: $$APP_IMAGE$(NC)\n"; \
+		fi; \
+	else \
+		printf '%b' "  $(GRAY)ℹ App image not found: $$APP_IMAGE$(NC)\n"; \
+	fi; \
+	PGADMIN_IMAGE=$$(grep -E '^PGADMIN_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'); \
+	if [ -n "$$PGADMIN_IMAGE" ]; then \
+		if $(DOCKER) image inspect "$$PGADMIN_IMAGE" > /dev/null 2>&1; then \
+			if $(DOCKER) rmi -f "$$PGADMIN_IMAGE" > /dev/null 2>&1; then \
+				printf '%b' "  $(GREEN)✅ Removed: $$PGADMIN_IMAGE$(NC)\n"; \
+				IMAGES_REMOVED=$$((IMAGES_REMOVED + 1)); \
+			else \
+				printf '%b' "  $(YELLOW)⚠ Could not remove: $$PGADMIN_IMAGE$(NC)\n"; \
+			fi; \
+		else \
+			printf '%b' "  $(GRAY)ℹ PgAdmin image not found: $$PGADMIN_IMAGE$(NC)\n"; \
+		fi; \
+	else \
+		printf '%b' "  $(YELLOW)⚠ PgAdmin image not specified in $(ENV_FILE)$(NC)\n"; \
+	fi; \
+	POSTGRES_IMAGE=$$(grep -E '^POSTGRES_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'); \
+	if [ -n "$$POSTGRES_IMAGE" ]; then \
+		if $(DOCKER) image inspect "$$POSTGRES_IMAGE" > /dev/null 2>&1; then \
+			if $(DOCKER) rmi -f "$$POSTGRES_IMAGE" > /dev/null 2>&1; then \
+				printf '%b' "  $(GREEN)✅ Removed: $$POSTGRES_IMAGE$(NC)\n"; \
+				IMAGES_REMOVED=$$((IMAGES_REMOVED + 1)); \
+			else \
+				printf '%b' "  $(YELLOW)⚠ Could not remove: $$POSTGRES_IMAGE$(NC)\n"; \
+			fi; \
+		else \
+			printf '%b' "  $(GRAY)ℹ Postgres image not found: $$POSTGRES_IMAGE$(NC)\n"; \
+		fi; \
+	else \
+		printf '%b' "  $(YELLOW)⚠ Postgres image not specified in $(ENV_FILE)$(NC)\n"; \
+	fi; \
+	DANGLING=$$($(DOCKER) images --filter "dangling=true" -q 2>/dev/null); \
+	if [ -n "$$DANGLING" ]; then \
+		printf '%b' "  $(BLUE)🧹 Pruning dangling layers...$(NC)\n"; \
+		if $(DOCKER) image prune -f > /dev/null 2>&1; then \
+			printf '%b' "  $(GREEN)✅ Pruned dangling layers$(NC)\n"; \
+			IMAGES_REMOVED=$$((IMAGES_REMOVED + 1)); \
+		fi; \
+	fi; \
+	if [ $$IMAGES_REMOVED -eq 0 ]; then \
+		printf '%b' "  $(GRAY)ℹ No images to remove$(NC)\n"; \
+	fi
+endef
+
+define clean_project_build_cache
+	@printf '%b' "$(MAGENTA)🧹 Cleaning build cache for $(1)...$(NC)\n"
+	@if $(DOCKER) builder prune --filter label=com.docker.compose.project=$(1) -f > /dev/null 2>&1; then \
+		printf '%b' "  $(GREEN)✅ Build cache pruned$(NC)\n"; \
+	else \
+		printf '%b' "  $(GRAY)ℹ No build cache to remove$(NC)\n"; \
+	fi
+endef
+
 define check_containers_for_volumes
 	@ALL_CONTAINERS=$$($(DOCKER) ps -aq --filter "name=$(1)" 2>/dev/null); \
 	if [ -n "$$ALL_CONTAINERS" ]; then \
@@ -120,75 +215,6 @@ define check_containers_for_volumes
 	fi
 endef
 
-define remove_project_volumes
-	@printf '%b' "$(MAGENTA)🧹 Removing volumes for project: $(1)$(NC)\n"
-	@VOLUMES_REMOVED=0; \
-	for volume in $$($(DOCKER) volume ls -q --filter "name=^$(1)" 2>/dev/null); do \
-		if $(DOCKER) volume rm -f "$$volume" > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Removed: $$volume$(NC)\n"; \
-			VOLUMES_REMOVED=$$((VOLUMES_REMOVED + 1)); \
-		else \
-			printf '%b' "  $(YELLOW)⚠ Could not remove: $$volume$(NC)\n"; \
-		fi; \
-	done; \
-	if [ $$VOLUMES_REMOVED -eq 0 ]; then \
-		printf '%b' "  $(GRAY)ℹ No volumes found for $(1)$(NC)\n"; \
-	fi
-endef
-
-define remove_all_project_images
-	@printf '%b' "$(RED)🔥 Removing images for $(1)...$(NC)\n"
-	@REMOVED=0; \
-	# App image
-	if $(DOCKER) rmi -f "$(1)-app:latest" > /dev/null 2>&1; then \
-		printf '%b' "  $(GREEN)✅ Removed: $(1)-app:latest$(NC)\n"; \
-		REMOVED=1; \
-	else \
-		printf '%b' "  $(GRAY)ℹ App image not found$(NC)\n"; \
-	fi; \
-	# PgAdmin image from environment
-	PGADMIN_IMAGE_VAL=$$(grep -E '^PGADMIN_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//' || echo ''); \
-	if [ -n "$$PGADMIN_IMAGE_VAL" ]; then \
-		if $(DOCKER) rmi -f "$$PGADMIN_IMAGE_VAL" > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Removed: $$PGADMIN_IMAGE_VAL$(NC)\n"; \
-			REMOVED=1; \
-		else \
-			printf '%b' "  $(GRAY)ℹ PgAdmin image not found: $$PGADMIN_IMAGE_VAL$(NC)\n"; \
-		fi; \
-	else \
-		printf '%b' "  $(GRAY)ℹ PgAdmin image not specified in $(ENV_FILE)$(NC)\n"; \
-	fi; \
-	# Postgres image from environment
-	POSTGRES_IMAGE_VAL=$$(grep -E '^POSTGRES_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//' || echo ''); \
-	if [ -n "$$POSTGRES_IMAGE_VAL" ]; then \
-		if $(DOCKER) rmi -f "$$POSTGRES_IMAGE_VAL" > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Removed: $$POSTGRES_IMAGE_VAL$(NC)\n"; \
-			REMOVED=1; \
-		else \
-			printf '%b' "  $(GRAY)ℹ Postgres image not found: $$POSTGRES_IMAGE_VAL$(NC)\n"; \
-		fi; \
-	else \
-		printf '%b' "  $(GRAY)ℹ Postgres image not specified in $(ENV_FILE)$(NC)\n"; \
-	fi; \
-	# Dangling images
-	DANGLING=$$($(DOCKER) images --filter "dangling=true" -q 2>/dev/null); \
-	if [ -n "$$DANGLING" ]; then \
-		printf '%b' "  $(BLUE)🧹 Pruning dangling layers...$(NC)\n"; \
-		if $(DOCKER) image prune -f > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Pruned dangling layers$(NC)\n"; \
-			REMOVED=1; \
-		fi; \
-	fi; \
-	if [ $$REMOVED -eq 0 ]; then \
-		printf '%b' "  $(GRAY)ℹ No images to remove$(NC)\n"; \
-	fi
-endef
-
-define clean_project_build_cache
-	@printf '%b' "$(MAGENTA)🧹 Cleaning build cache for $(1)...$(NC)\n"
-	@$(DOCKER) builder prune --filter label=com.docker.compose.project=$(1) -f > /dev/null 2>&1 || true
-endef
-
 # ---------------------------------------------------------
 # Targets
 # ---------------------------------------------------------
@@ -196,7 +222,7 @@ endef
 .PHONY: help \
 	env env-dev env-prod env-status \
 	test-env-files check-secrets \
-	up down stop build clean clean-volumes clean-images clean-all \
+	up down stop build clean clean-volumes clean-images clean-networks clean-build-cache clean-all \
 	logs logs-pgadmin logs-db logs-app shell ps stats \
 	ports check-ports df disk \
 	nuke \
@@ -224,7 +250,7 @@ env:
 	@printf '%b' "  1) $(GREEN)dev$(NC)    - Development\n"
 	@printf '%b' "  2) $(RED)prod$(NC)   - Production\n\n"
 	@printf '%b' "$(YELLOW)Choice [1-2] (Enter=keep current): $(NC)"
-	@bash -c 'read -r choice; \
+	@read -r choice; \
 	if [ "$$choice" = "1" ] || [ "$$choice" = "dev" ]; then \
 		echo "Switched to: dev" && echo "dev" > "$(ACTIVE_ENV_FILE)"; \
 	elif [ "$$choice" = "2" ] || [ "$$choice" = "prod" ]; then \
@@ -233,7 +259,7 @@ env:
 		echo "Keeping current environment: $(CURRENT_ENV)"; \
 	else \
 		echo "❌ Invalid choice. Enter 1, 2, or press Enter to keep current."; \
-	fi'
+	fi
 	@if [ -f "$(ACTIVE_ENV_FILE)" ]; then \
 		NEW_ENV=$$(cat "$(ACTIVE_ENV_FILE)"); \
 		if [ "$$NEW_ENV" != "$(CURRENT_ENV)" ]; then \
@@ -285,7 +311,11 @@ generate-secrets:
 # Проверка секретов
 check-secrets:
 	@printf '%b' "$(CYAN)🔍 Checking secrets...$(NC)\n"
-	@MISSING=0; \
+	@if [ ! -d "$(SECRETS_DIR)" ]; then \
+		printf '%b' "$(RED)❌ Secrets directory not found: $(SECRETS_DIR)$(NC)\n"; \
+		exit 1; \
+	fi; \
+	MISSING=0; \
 	if [ ! -f "$(DB_SECRET)" ]; then \
 		printf '%b' "$(RED)❌ Missing: db_password.txt$(NC)\n"; \
 		MISSING=1; \
@@ -317,15 +347,30 @@ up: test-env-files check-secrets
 	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) ps --all 2>/dev/null | tail -n +2
 
 stop:
-	@printf '%b' "$(YELLOW)⏸️ Stopping containers (keeping them)$(NC)\n"
-	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" stop > /dev/null 2>&1
+	@printf '%b' "$(YELLOW)⏸️ Stopping containers for $(CURRENT_ENV) environment...$(NC)\n"
+	@CONTAINERS=$$($(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) ps -q 2>/dev/null); \
+	if [ -z "$$CONTAINERS" ]; then \
+		printf '%b' "  $(GRAY)ℹ No running containers to stop$(NC)\n"; \
+	else \
+		for container in $$CONTAINERS; do \
+			NAME=$$($(DOCKER) ps --format "{{.Names}}" --filter "id=$$container" 2>/dev/null); \
+			printf '%b' "  $(YELLOW)⏸️ Stopping: $$NAME$(NC)\n"; \
+		done; \
+		printf '\n'; \
+		$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" stop; \
+		printf '%b' "\n  $(GREEN)✅ Containers stopped$(NC)\n"; \
+	fi
 
 down:
 	@printf '%b' "$(RED)🛑 Stopping and removing containers & networks$(NC)\n"
-	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" down > /dev/null 2>&1
+	@printf '%b' "$(GRAY)Step 1: Stopping containers...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" stop
+	@printf '%b' "$(GRAY)Step 2: Removing containers and networks...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" down
+	@printf '%b' "$(GREEN)✅ Containers and networks removed$(NC)\n"
 
 clean: down
-	@printf '%b' "$(MAGENTA)🧹 Clean completed: containers & networks removed$(NC)\n"
+	@printf '%b' "\n$(MAGENTA)🧹 Clean completed: containers & networks removed$(NC)\n"
 
 clean-volumes:
 	$(call check_containers_for_volumes,$(COMPOSE_PROJECT_NAME))
@@ -333,11 +378,16 @@ clean-volumes:
 
 clean-images:
 	$(call check_containers_for_volumes,$(COMPOSE_PROJECT_NAME))
-	$(call remove_all_project_images,$(COMPOSE_PROJECT_NAME))
+	$(call remove_project_images,$(COMPOSE_PROJECT_NAME))
 
-clean-all: clean-volumes clean-images
+clean-networks:
+	$(call remove_resource,networks,$(COMPOSE_PROJECT_NAME),network ls -q,Name,network rm)
+
+clean-build-cache:
 	$(call clean_project_build_cache,$(COMPOSE_PROJECT_NAME))
-	@printf '%b' "$(GREEN)✅ All project resources cleaned$(NC)\n"
+
+clean-all: clean-volumes clean-images clean-networks clean-build-cache
+	@printf '%b' "$(GREEN)✅ All project resources cleaned (except containers)$(NC)\n"
 
 # =========================================================
 # Logs & Shell
@@ -440,68 +490,30 @@ nuke:
 	@printf '  • Project images\n'
 	@printf '  • Build cache\n'
 	@printf '\n'
-	@bash -c ' \
-		printf "%b" "$(YELLOW)Are you sure? [y/N]: $(NC)"; \
-		read -r confirm; \
-		if [ "$$confirm" != "y" ] && [ "$$confirm" != "Y" ]; then \
-			printf "%b" "$(YELLOW)Cancelled$(NC)\n"; \
-			exit 0; \
-		fi \
-	'
+	@printf '%b' "$(YELLOW)Are you sure? [y/N]: $(NC)"; \
+	read -r confirm; \
+	if [ "$$confirm" != "y" ] && [ "$$confirm" != "Y" ]; then \
+		printf '%b' "$(YELLOW)Cancelled$(NC)\n"; \
+		exit 0; \
+	fi
 	@printf '\n'
+
 	@printf '%b' "$(MAGENTA)1️⃣  Stopping and removing containers and networks$(NC)\n"
+	@printf '%b' "$(GRAY)  Stopping containers...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" stop > /dev/null 2>&1 || true
+	@printf '%b' "$(GRAY)  Removing containers and networks...$(NC)\n"
 	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" down > /dev/null 2>&1 || true
+	@printf '%b' "$(GREEN)  ✅ Containers and networks removed$(NC)\n"
+
 	@printf '%b' "$(MAGENTA)2️⃣  Removing volumes$(NC)\n"
-	@volumes_removed=0; \
-	for vol in $$($(DOCKER) volume ls -q --filter "name=^$(COMPOSE_PROJECT_NAME)" 2>/dev/null); do \
-		if $(DOCKER) volume rm -f "$$vol" > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Removed: $$vol$(NC)\n"; \
-			volumes_removed=$$((volumes_removed + 1)); \
-		else \
-			printf '%b' "  $(YELLOW)⚠ Skipped: $$vol$(NC)\n"; \
-		fi; \
-	done; \
-	if [ $$volumes_removed -eq 0 ]; then \
-		printf '%b' "  $(GRAY)ℹ No volumes found$(NC)\n"; \
-	fi
+	$(call remove_project_volumes,$(COMPOSE_PROJECT_NAME))
+
 	@printf '%b' "$(MAGENTA)3️⃣  Removing images$(NC)\n"
-	@images_removed=0; \
-	if $(DOCKER) rmi -f "$(COMPOSE_PROJECT_NAME)-app:latest" > /dev/null 2>&1; then \
-		printf '%b' "  $(GREEN)✅ Removed: $(COMPOSE_PROJECT_NAME)-app:latest$(NC)\n"; \
-		images_removed=$$((images_removed + 1)); \
-	fi; \
-	# PgAdmin image from environment
-	PGADMIN_IMAGE_VAL=$$(grep -E '^PGADMIN_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//' || echo ''); \
-	if [ -n "$$PGADMIN_IMAGE_VAL" ]; then \
-		if $(DOCKER) rmi -f "$$PGADMIN_IMAGE_VAL" > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Removed: $$PGADMIN_IMAGE_VAL$(NC)\n"; \
-			images_removed=$$((images_removed + 1)); \
-		fi; \
-	fi; \
-	# Postgres image from environment
-	POSTGRES_IMAGE_VAL=$$(grep -E '^POSTGRES_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//' || echo ''); \
-	if [ -n "$$POSTGRES_IMAGE_VAL" ]; then \
-		if $(DOCKER) rmi -f "$$POSTGRES_IMAGE_VAL" > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Removed: $$POSTGRES_IMAGE_VAL$(NC)\n"; \
-			images_removed=$$((images_removed + 1)); \
-		fi; \
-	fi; \
-	dangling=$$($(DOCKER) images --filter "dangling=true" -q 2>/dev/null); \
-	if [ -n "$$dangling" ]; then \
-		if $(DOCKER) image prune -f > /dev/null 2>&1; then \
-			printf '%b' "  $(GREEN)✅ Pruned dangling layers$(NC)\n"; \
-			images_removed=$$((images_removed + 1)); \
-		fi; \
-	fi; \
-	if [ $$images_removed -eq 0 ]; then \
-		printf '%b' "  $(GRAY)ℹ No images to remove$(NC)\n"; \
-	fi
+	$(call remove_project_images,$(COMPOSE_PROJECT_NAME))
+
 	@printf '%b' "$(MAGENTA)4️⃣  Cleaning build cache$(NC)\n"
-	@if $(DOCKER) builder prune --filter label=com.docker.compose.project=$(COMPOSE_PROJECT_NAME) -f > /dev/null 2>&1; then \
-		printf '%b' "  $(GREEN)✅ Build cache pruned$(NC)\n"; \
-	else \
-		printf '%b' "  $(GRAY)ℹ No build cache to remove$(NC)\n"; \
-	fi
+	$(call clean_project_build_cache,$(COMPOSE_PROJECT_NAME))
+
 	@printf '\n'
 	@printf '%b' "$(GREEN)✅ $(CURRENT_ENV) environment fully destroyed$(NC)\n"
 
@@ -515,18 +527,18 @@ help:
 	@printf '%b' "$(CYAN)📦 Active environment: $(GREEN)$(CURRENT_ENV)$(NC)\n"
 	@printf '\n'
 	@printf '%b' "$(CYAN)■ Environment$(NC)\n"
-	@printf '  make env env-dev env-prod env-status test-env-files check-secrets\n'
+	@printf '  env env-dev env-prod env-status test-env-files check-secrets\n'
 	@printf '\n'
 	@printf '%b' "$(CYAN)■ Lifecycle$(NC)\n"
-	@printf '  make up down stop build clean\n'
+	@printf '  up down stop build clean\n'
 	@printf '\n'
 	@printf '%b' "$(CYAN)■ Cleanup$(NC)\n"
-	@printf '  make clean-volumes clean-images clean-all nuke\n'
+	@printf '  clean-volumes clean-images clean-networks clean-build-cache clean-all nuke\n'
 	@printf '\n'
 	@printf '%b' "$(CYAN)■ Debug$(NC)\n"
-	@printf '  make logs logs-pgadmin logs-db logs-app shell ps stats ports check-ports df disk\n'
+	@printf '  logs logs-pgadmin logs-db logs-app shell ps stats ports check-ports df disk\n'
 	@printf '\n'
 	@printf '%b' "$(CYAN)■ Secrets$(NC)\n"
-	@printf '  make generate-secrets\n'
+	@printf '  generate-secrets\n'
 	@printf '\n'
 	@printf '%b' "$(GRAY)ℹ Active env stored in: $(ACTIVE_ENV_FILE)$(NC)\n"
