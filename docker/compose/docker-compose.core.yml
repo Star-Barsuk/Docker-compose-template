@@ -1,0 +1,127 @@
+# Main Docker Compose configuration file
+# Imports all modular configuration files
+
+# Import base configuration files
+include:
+  - path: ./base/networks.yml
+  - path: ./base/secrets.yml
+  - path: ./base/volumes.yml
+  - path: ./base/security.yml
+  - path: ./base/resources.yml
+
+# Import service definitions
+include:
+  - path: ./services/app.yml
+  - path: ./services/db.yml
+  - path: ./services/pgadmin.yml
+
+# Import profiles definition
+include:
+  - path: ./services/profiles.yml
+
+# Default services
+services:
+  # Development application service
+  app-dev:
+    extends:
+      file: ./services/app.yml
+      service: app
+    profiles: ["dev-standard"]
+    ports:
+      - "${APP_PORT_DEV:-8000}:8000"
+    <<: *security-dev
+    deploy:
+      resources:
+        limits:
+          cpus: ${APP_CPU_LIMIT:-0.2}
+          memory: ${APP_MEMORY_LIMIT:-256M}
+
+  # Production application service
+  app-prod:
+    extends:
+      file: ./services/app.yml
+      service: app
+    profiles: ["prod-standard"]
+    <<: *security-prod
+    deploy:
+      resources:
+        limits:
+          cpus: ${APP_CPU_LIMIT:-0.5}
+          memory: ${APP_MEMORY_LIMIT:-512M}
+
+  # Test application service
+  app-test:
+    extends:
+      file: ./services/app.yml
+      service: app
+    profiles: ["test"]
+    command: ["pytest", "/app/tests", "-v"]
+
+  # Local database service
+  db-local:
+    extends:
+      file: ./services/db.yml
+      service: db
+    profiles: ["local-db"]
+    environment:
+      POSTGRES_DB: ${DB_NAME_LOCAL:-appdb_local}
+      POSTGRES_USER: ${DB_USER_LOCAL:-appuser_local}
+    ports:
+      - "${DB_PORT_LOCAL:-5432}:5432"
+    <<: *security-local
+
+  # Development database service
+  db-dev:
+    extends:
+      file: ./services/db.yml
+      service: db
+    profiles: ["dev-standard"]
+    environment:
+      POSTGRES_DB: ${DB_NAME_DEV:-appdb_dev}
+      POSTGRES_USER: ${DB_USER_DEV:-appuser_dev}
+    ports:
+      - "${DB_PORT_DEV:-5432}:5432"
+    <<: *security-dev
+
+  # Production database service
+  db-prod:
+    extends:
+      file: ./services/db.yml
+      service: db
+    profiles: ["prod-standard"]
+    environment:
+      POSTGRES_DB: ${DB_NAME_PROD:-appdb_prod}
+      POSTGRES_USER: ${DB_USER_PROD:-appuser_prod}
+    <<: *security-prod
+
+  # Test database service
+  db-test:
+    extends:
+      file: ./services/db.yml
+      service: db
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: ${DB_NAME_TEST:-appdb_test}
+      POSTGRES_USER: ${DB_USER_TEST:-appuser_test}
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=512M
+
+  # Development PgAdmin service
+  pgadmin-dev:
+    extends:
+      file: ./services/pgadmin.yml
+      service: pgadmin
+    profiles: ["dev-standard"]
+    ports:
+      - "${PGADMIN_PORT_DEV:-8080}:80"
+    <<: *security-dev
+
+  # Production PgAdmin service
+  pgadmin-prod:
+    extends:
+      file: ./services/pgadmin.yml
+      service: pgadmin
+    profiles: ["prod-standard"]
+    ports:
+      - "${PGADMIN_PORT_PROD:-8081}:80"
+    <<: *security-prod
