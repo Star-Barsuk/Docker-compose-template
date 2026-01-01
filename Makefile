@@ -349,54 +349,45 @@ nuke:
 		exit 0; \
 	fi; \
 	printf '\n'; \
-	\
-	# Step 1: Stop and remove containers & networks
 	printf '%b' "$(MAGENTA)1️⃣  Stopping and removing containers & networks$(NC)\n"; \
 	$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" down > /dev/null 2>&1 || true; \
-	\
-	# Step 2: Remove volumes
 	printf '%b' "$(MAGENTA)2️⃣  Removing volumes$(NC)\n"; \
-	VOLUMES_REMOVED=0; \
+	volumes_removed=0; \
 	for vol in $$($(DOCKER) volume ls -q --filter "name=^$(COMPOSE_PROJECT_NAME)" 2>/dev/null); do \
 		if $(DOCKER) volume rm -f "$$vol" > /dev/null 2>&1; then \
 			printf '%b' "  $(GREEN)✅ Removed: $$vol$(NC)\n"; \
-			VOLUMES_REMOVED=$$((VOLUMES_REMOVED + 1)); \
+			volumes_removed=$$((volumes_removed + 1)); \
 		else \
 			printf '%b' "  $(YELLOW)⚠ Skipped: $$vol$(NC)\n"; \
 		fi; \
 	done; \
-	if [ $$VOLUMES_REMOVED -eq 0 ]; then \
+	if [ $$volumes_removed -eq 0 ]; then \
 		printf '%b' "  $(GRAY)ℹ No volumes found$(NC)\n"; \
 	fi; \
-	\
-	# Step 3: Remove images
 	printf '%b' "$(MAGENTA)3️⃣  Removing images$(NC)\n"; \
-	IMAGES_REMOVED=0; \
+	images_removed=0; \
 	for img in "$(COMPOSE_PROJECT_NAME)-app:latest" "dpage/pgadmin4:latest" "postgres:18.1-bookworm"; do \
 		if $(DOCKER) rmi -f "$$img" > /dev/null 2>&1; then \
 			printf '%b' "  $(GREEN)✅ Removed: $$img$(NC)\n"; \
-			IMAGES_REMOVED=$$((IMAGES_REMOVED + 1)); \
+			images_removed=$$((images_removed + 1)); \
 		fi; \
 	done; \
-	DANGLING=$$($(DOCKER) images --filter "dangling=true" -q 2>/dev/null); \
-	if [ -n "$$DANGLING" ]; then \
+	dangling=$$($(DOCKER) images --filter "dangling=true" -q 2>/dev/null); \
+	if [ -n "$$dangling" ]; then \
 		if $(DOCKER) image prune -f > /dev/null 2>&1; then \
 			printf '%b' "  $(GREEN)✅ Pruned dangling layers$(NC)\n"; \
-			IMAGES_REMOVED=$$((IMAGES_REMOVED + 1)); \
+			images_removed=$$((images_removed + 1)); \
 		fi; \
 	fi; \
-	if [ $$IMAGES_REMOVED -eq 0 ]; then \
+	if [ $$images_removed -eq 0 ]; then \
 		printf '%b' "  $(GRAY)ℹ No images to remove$(NC)\n"; \
 	fi; \
-	\
-	# Step 4: Build cache
 	printf '%b' "$(MAGENTA)4️⃣  Cleaning build cache$(NC)\n"; \
 	if $(DOCKER) builder prune --filter label=com.docker.compose.project=$(COMPOSE_PROJECT_NAME) -f > /dev/null 2>&1; then \
 		printf '%b' "  $(GREEN)✅ Build cache pruned$(NC)\n"; \
 	else \
 		printf '%b' "  $(GRAY)ℹ No build cache to remove$(NC)\n"; \
 	fi; \
-	\
 	printf '\n'; \
 	printf '%b' "$(GREEN)✅ $(CURRENT_ENV) environment fully destroyed$(NC)\n"
 
