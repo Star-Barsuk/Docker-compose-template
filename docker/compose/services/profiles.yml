@@ -1,0 +1,48 @@
+# Environment profiles definition
+# Profiles group services for different use cases
+
+profiles:
+  # ------------------------------------------------------------
+  # LOCAL DEVELOPMENT PROFILES
+  # ------------------------------------------------------------
+
+  # Local database only (application runs on host)
+  local-db:
+    description: "Local database only"
+    services:
+      - db-local
+
+  # ------------------------------------------------------------
+  # DEVELOPMENT PROFILES
+  # ------------------------------------------------------------
+
+  # Standard development stack
+  dev-standard:
+    description: "Standard development"
+    services:
+      - app-dev
+      - db-dev
+      - pgadmin-dev
+
+  # ------------------------------------------------------------
+  # PRODUCTION PROFILES
+  # ------------------------------------------------------------
+
+  # Standard production stack
+  prod-standard:
+    description: "Standard production"
+    services:
+      - app-prod
+      - db-prod
+      - pgadmin-prod
+
+  # ------------------------------------------------------------
+  # TESTING PROFILES
+  # ------------------------------------------------------------
+
+  # Testing profile
+  test:
+    description: "Testing"
+    services:
+      - app-test
+      - db-test
