@@ -45,7 +45,7 @@ services:
       - SETUID
 
   db:
-    image: postgres:18.1-bookworm
+    image: ${POSTGRES_IMAGE:-postgres:latest}
     profiles: ["db", "dev", "prod"]
     restart: unless-stopped
     hostname: db
