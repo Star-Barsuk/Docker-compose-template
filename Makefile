@@ -1,5 +1,5 @@
 # =========================================================
-# Makefile
+# Makefile with Dynamic Environment System
 # =========================================================
 
 PROJECT ?= my-awesome-app
@@ -9,17 +9,71 @@ PROJECT ?= my-awesome-app
 # ---------------------------------------------------------
 
 DOCKER := docker
+SHELL := /bin/bash
+
+# =========================================================
+# Environment System (Dynamic)
+# =========================================================
+
+ACTIVE_ENV_FILE := .active-env
+ENVS_DIR := envs
+
+ENV_FILES := $(wildcard $(ENVS_DIR)/.env.*)
+ENV_NAMES := $(sort $(shell \
+	find $(ENVS_DIR) -maxdepth 1 -name '.env.*' -type f 2>/dev/null | \
+	xargs -I {} basename {} | \
+	sed 's/^\.env\.//' | \
+	grep -v '\.example$$' \
+))
+
+ifeq ($(strip $(ENV_NAMES)),)
+    $(warning No environment files found in $(ENVS_DIR)/.env.*)
+    $(warning Create files like: $(ENVS_DIR)/.env.dev, $(ENVS_DIR)/.env.prod)
+endif
+
+CURRENT_ENV := $(strip $(shell \
+	if [ -f "$(ACTIVE_ENV_FILE)" ]; then \
+		cat "$(ACTIVE_ENV_FILE)" 2>/dev/null; \
+	elif [ -f "$(ENVS_DIR)/.env.dev" ]; then \
+		echo "dev"; \
+	elif [ -n "$(firstword $(ENV_NAMES))" ]; then \
+		echo "$(firstword $(ENV_NAMES))"; \
+	else \
+		echo "dev"; \
+	fi \
+))
+
+ifneq ($(filter $(CURRENT_ENV),$(ENV_NAMES)),)
+    ENV_FILE := $(ENVS_DIR)/.env.$(CURRENT_ENV)
+else
+    $(warning Current environment '$(CURRENT_ENV)' not found in $(ENVS_DIR))
+    $(warning Available environments: $(ENV_NAMES))
+    ifneq ($(strip $(ENV_NAMES)),)
+        CURRENT_ENV := $(firstword $(ENV_NAMES))
+        ENV_FILE := $(ENVS_DIR)/.env.$(CURRENT_ENV)
+        $(warning Falling back to: $(CURRENT_ENV))
+    else
+        $(error No valid environment files found. Create at least one .env.* file in $(ENVS_DIR))
+    endif
+endif
+
+COMPOSE_PROJECT_NAME := $(strip $(shell \
+	if [ -f "$(ENV_FILE)" ]; then \
+		grep -E '^COMPOSE_PROJECT_NAME=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'; \
+	fi \
+))
+
+ifeq ($(COMPOSE_PROJECT_NAME),)
+    COMPOSE_PROJECT_NAME := $(PROJECT)-$(CURRENT_ENV)
+endif
 
 # ---------------------------------------------------------
-# Docker Compose — isolated via .env files
+# Docker Compose
 # ---------------------------------------------------------
 
 COMPOSE_BASE := -f docker/docker-compose.yml
-COMPOSE_DEV  := -f docker/docker-compose.dev.yml
-COMPOSE_PROD := -f docker/docker-compose.prod.yml
-
-DC_DEV  := $(DOCKER) compose --env-file .env.dev
-DC_PROD := $(DOCKER) compose --env-file .env.prod
+COMPOSE_OVERRIDE := -f docker/docker-compose.$(CURRENT_ENV).yml
+DC := $(DOCKER) compose --env-file $(ENV_FILE)
 
 # ---------------------------------------------------------
 # Secrets
@@ -42,456 +96,517 @@ GRAY   := \033[0;90m
 NC     := \033[0m
 
 # ---------------------------------------------------------
-# Helper functions
+# Helper Functions
 # ---------------------------------------------------------
 
-# Function to remove project volumes
-define remove_project_volumes
-	@echo "$(MAGENTA)🧹 Removing volumes for project: $(1)$(NC)"; \
-	VOLUMES_REMOVED=0; \
-	for volume in $$($(DOCKER) volume ls -q --filter name=^$(1) 2>/dev/null); do \
-		if $(DOCKER) volume rm -f "$$volume" 2>/dev/null; then \
-			echo "  $(GREEN)✅ Removed: $$volume$(NC)"; \
-			VOLUMES_REMOVED=$$((VOLUMES_REMOVED + 1)); \
+define get_env_value
+	$(strip $(shell \
+		if [ -f "$(ENV_FILE)" ]; then \
+			grep -E "^$(1)=" "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'; \
+		fi \
+	))
+endef
+
+define save_active_env
+	@printf '%b' "$(GREEN)✓ Active environment set to: $(1)$(NC)\n"
+	@echo "$(1)" > "$(ACTIVE_ENV_FILE)"
+endef
+
+define show_env_info
+	@printf '%b' "$(CYAN)📦 Current environment: $(GREEN)$(CURRENT_ENV)$(NC)\n"
+	@printf '%b' "$(CYAN)📁 Configuration file: $(GRAY)$(ENV_FILE)$(NC)\n"
+	@printf '%b' "$(CYAN)🏷️  Project name: $(GRAY)$(COMPOSE_PROJECT_NAME)$(NC)\n"
+	@printf '%b' "$(CYAN)📂 Available environments: $(GRAY)$(ENV_NAMES)$(NC)\n"
+	@if [ -f "$(ENV_FILE)" ]; then \
+		PGPORT=$$(grep -E '^PGADMIN_PORT=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- || echo 'not specified'); \
+		printf '%b' "$(CYAN)📍 PGAdmin port: $(GRAY)$$PGPORT$(NC)\n"; \
+		PGIMAGE=$$(grep -E '^PGADMIN_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- || echo 'dpage/pgadmin4:8.12'); \
+		printf '%b' "$(CYAN)🖼️  PGAdmin image: $(GRAY)$$PGIMAGE$(NC)\n"; \
+		DBIMAGE=$$(grep -E '^POSTGRES_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- || echo 'postgres:18.1-bookworm'); \
+		printf '%b' "$(CYAN)🗄️  Postgres image: $(GRAY)$$DBIMAGE$(NC)\n"; \
+	else \
+		printf '%b' "$(RED)⚠ Environment file not found: $(ENV_FILE)$(NC)\n"; \
+	fi
+endef
+
+# Абстракция: проверка существования ресурса
+define check_resource_existence
+	@RESOURCE_EXISTS=$$( $(DOCKER) $(1) "$(2)" > /dev/null 2>&1 && echo "1" || echo "0" ); \
+	if [ "$$RESOURCE_EXISTS" -eq 1 ]; then \
+		$(3); \
+	else \
+		$(4); \
+	fi
+endef
+
+# Абстракция: удаление ресурса (контейнеры, сети, тома)
+define remove_resource
+	@printf '%b' "$(MAGENTA)🧹 Removing $(1) for project: $(2)$(NC)\n"
+	@REMOVED=0; \
+	for resource in $$($(DOCKER) $(3) --filter "name=^$(2)" --format "{{.$(4)}}" 2>/dev/null); do \
+		if $(DOCKER) $(5) "$$resource" > /dev/null 2>&1; then \
+			printf '%b' "  $(GREEN)✅ Removed: $$resource$(NC)\n"; \
+			REMOVED=$$((REMOVED + 1)); \
 		else \
-			echo "  $(YELLOW)⚠ Could not remove (might be in use): $$volume$(NC)"; \
+			printf '%b' "  $(YELLOW)⚠ Could not remove: $$resource$(NC)\n"; \
 		fi; \
 	done; \
-	if [ $$VOLUMES_REMOVED -eq 0 ]; then \
-		echo "$(YELLOW)⚠ No volumes found for project: $(1)$(NC)"; \
+	if [ $$REMOVED -eq 0 ]; then \
+		printf '%b' "  $(GRAY)ℹ No $(1) found for $(2)$(NC)\n"; \
 	fi
 endef
 
-# Function to check if containers are running
-define check_running_containers
-	@RUNNING_CONTAINERS=$$($(DOCKER) ps -q --filter "name=$(1)" 2>/dev/null); \
-	if [ -n "$$RUNNING_CONTAINERS" ]; then \
-		echo "$(RED)❌ $(1) containers are still running!$(NC)"; \
-		echo "  Running containers: $$RUNNING_CONTAINERS"; \
-		echo "  Stop first with: make docker-down-$(2)"; \
+define check_and_remove_image
+	if $(DOCKER) image inspect "$(1)" > /dev/null 2>&1; then \
+		if $(DOCKER) rmi -f "$(1)" > /dev/null 2>&1; then \
+			printf '%b' "  $(GREEN)✅ Removed: $(1)$(NC)\n"; \
+		else \
+			printf '%b' "  $(YELLOW)⚠ Could not remove: $(1)$(NC)\n"; \
+		fi; \
+	else \
+		printf '%b' "  $(GRAY)ℹ Image not found: $(1)$(NC)\n"; \
+	fi
+endef
+
+define remove_project_images
+	@printf '%b' "$(RED)🔥 Removing images for $(1)...$(NC)\n"
+	@IMAGES_REMOVED=0; \
+	APP_IMAGE="$(1)-app:latest"; \
+	$(call check_and_remove_image,$$APP_IMAGE); \
+	PGADMIN_IMAGE=$$(grep -E '^PGADMIN_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'); \
+	$(call check_and_remove_image,$$PGADMIN_IMAGE); \
+	POSTGRES_IMAGE=$$(grep -E '^POSTGRES_IMAGE=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'); \
+	$(call check_and_remove_image,$$POSTGRES_IMAGE); \
+	DANGLING=$$($(DOCKER) images --filter "dangling=true" -q 2>/dev/null); \
+	if [ -n "$$DANGLING" ]; then \
+		printf '%b' "  $(BLUE)🧹 Pruning dangling layers...$(NC)\n"; \
+		if $(DOCKER) image prune -f > /dev/null 2>&1; then \
+			printf '%b' "  $(GREEN)✅ Pruned dangling layers$(NC)\n"; \
+			IMAGES_REMOVED=$$((IMAGES_REMOVED + 1)); \
+		fi; \
+	fi; \
+	if [ $$IMAGES_REMOVED -eq 0 ]; then \
+		printf '%b' "  $(GRAY)ℹ No images to remove$(NC)\n"; \
+	fi
+endef
+
+# Абстракция: проверка контейнеров перед удалением томов
+define check_containers_for_volumes
+	@ALL_CONTAINERS=$$($(DOCKER) ps -aq --filter "name=$(1)" 2>/dev/null); \
+	if [ -n "$$ALL_CONTAINERS" ]; then \
+		RUNNING=$$($(DOCKER) ps -q --filter "name=$(1)" --filter "status=running" 2>/dev/null); \
+		if [ -n "$$RUNNING" ]; then \
+			RUNNING_LIST=$$(echo "$$RUNNING" | tr '\n' ' ' | sed 's/ *$$//'); \
+			RUNNING_NAMES=$$($(DOCKER) ps --format "{{.Names}}" --filter "id=$$RUNNING_LIST" 2>/dev/null | tr '\n' ' '); \
+			printf '%b' "$(RED)❌ $(1) containers are still RUNNING: $$RUNNING_NAMES$(NC)\n"; \
+			printf '%b' "  → Stop them first: $(YELLOW)make stop$(NC)\n"; \
+			exit 1; \
+		else \
+			printf '%b' "$(YELLOW)⚠ $(1) containers exist but are STOPPED.$(NC)\n"; \
+			printf '%b' "  → Remove them first: $(GREEN)make clean$(NC)\n"; \
+			exit 1; \
+		fi; \
+	fi
+endef
+
+# Абстракция: очистка кэша сборки
+define clean_project_build_cache
+	@printf '%b' "$(MAGENTA)🧹 Cleaning build cache for $(1)...$(NC)\n"
+	@if $(DOCKER) builder prune --filter label=com.docker.compose.project=$(1) -f > /dev/null 2>&1; then \
+		printf '%b' "  $(GREEN)✅ Build cache pruned$(NC)\n"; \
+	else \
+		printf '%b' "  $(GRAY)ℹ No build cache to remove$(NC)\n"; \
+	fi
+endef
+
+# =========================================================
+# Targets
+# =========================================================
+
+.PHONY: help \
+	env env-list env-status \
+	test-env-files check-secrets \
+	up down stop build clean clean-volumes clean-images clean-networks clean-build-cache clean-all \
+	logs logs-pgadmin logs-db logs-app shell ps stats \
+	ports check-ports df disk \
+	nuke \
+	generate-secrets
+
+default: env-status
+
+# =========================================================
+# Environment
+# =========================================================
+
+env-status:
+	$(call show_env_info)
+
+# Динамически создаем цели env-<имя> для каждого окружения
+$(foreach env,$(ENV_NAMES),$(eval env-$(env): ; @$(call save_active_env,$(env))))
+$(foreach env,$(ENV_NAMES),$(eval .PHONY: env-$(env)))
+
+# Скрипт переключения окружения (интерактивная часть)
+define ENV_SWITCH_SCRIPT
+	@bash -c '\
+		echo -e "$(CYAN)🔄 Switching environment$(NC)"; \
+		echo -e "Current environment: $(GREEN)$(CURRENT_ENV)$(NC)"; \
+		echo; \
+		if [ -z "$(ENV_NAMES)" ]; then \
+			echo -e "$(RED)❌ No environment files found in $(ENVS_DIR)/$(NC)"; \
+			echo " Create at least one file like $(ENVS_DIR)/.env.dev"; \
+			exit 1; \
+		fi; \
+		echo -e "$(CYAN)Available environments:$(NC)"; \
+		set -- $(ENV_NAMES); \
+		idx=1; \
+		for env in $$@; do \
+			if [ "$$env" = "$(CURRENT_ENV)" ]; then \
+				printf " %3d) $(GREEN)%s$(NC) $(YELLOW)[ACTIVE]$(NC)\n" $$idx "$$env"; \
+			else \
+				printf " %3d) $(BLUE)%s$(NC)\n" $$idx "$$env"; \
+			fi; \
+			idx=$$((idx + 1)); \
+		done; \
+		echo; \
+		printf "$(YELLOW)Enter number or name (or press Enter to keep current): $(NC)"; \
+		read -r choice; \
+		if [ -z "$$choice" ]; then \
+			echo -e "\n$(GREEN)✓ Keeping current environment: $(CURRENT_ENV)$(NC)"; \
+			exit 0; \
+		fi; \
+		set -- $(ENV_NAMES); \
+		idx=1; \
+		selected=""; \
+		for env in $$@; do \
+			if [ "$$choice" = "$$idx" ] || [ "$$choice" = "$$env" ]; then \
+				selected="$$env"; \
+				break; \
+			fi; \
+			idx=$$((idx + 1)); \
+		done; \
+		if [ -n "$$selected" ]; then \
+			echo "$$selected" > "$(ACTIVE_ENV_FILE)"; \
+			echo -e "\n$(GREEN)✓ Active environment set to: $$selected$(NC)"; \
+		else \
+			echo -e "\n$(RED)❌ Invalid choice: $$choice$(NC)"; \
+			echo " Available: $(ENV_NAMES)"; \
+			exit 1; \
+		fi'
+endef
+
+env:
+	@$(ENV_SWITCH_SCRIPT) || true
+	@$(call show_env_info)
+
+env-list:
+	@printf '%b' "$(CYAN)📋 Available environments in $(ENVS_DIR)/:$(NC)\n"
+	@if [ -z "$(ENV_NAMES)" ]; then \
+		printf '%b' "  $(RED)No environment files found$(NC)\n"; \
+		printf '%b' "  Create files like: $(ENVS_DIR)/.env.dev, $(ENVS_DIR)/.env.prod\n"; \
+	else \
+		counter=1; \
+		for env in $(ENV_NAMES); do \
+			if [ "$$env" = "$(CURRENT_ENV)" ]; then \
+				printf '%b' "  $$counter) $(GREEN)$$env$(NC) $(YELLOW)[ACTIVE]$(NC)\n"; \
+			else \
+				printf '%b' "  $$counter) $(BLUE)$$env$(NC)\n"; \
+			fi; \
+			FILE="$(ENVS_DIR)/.env.$$env"; \
+			if [ -f "$$FILE" ]; then \
+				PROJECT_NAME=$$(grep -E '^COMPOSE_PROJECT_NAME=' "$$FILE" 2>/dev/null | cut -d'=' -f2-); \
+				if [ -n "$$PROJECT_NAME" ]; then \
+					printf '      Project: $(GRAY)%s$(NC)\n' "$$PROJECT_NAME"; \
+				fi; \
+				PGADMIN_PORT=$$(grep -E '^PGADMIN_PORT=' "$$FILE" 2>/dev/null | cut -d'=' -f2-); \
+				if [ -n "$$PGADMIN_PORT" ]; then \
+					printf '      PGAdmin port: $(GRAY)%s$(NC)\n' "$$PGADMIN_PORT"; \
+				fi; \
+			fi; \
+			counter=$$((counter + 1)); \
+		done; \
+	fi
+
+test-env-files:
+	@printf '%b' "$(CYAN)🔍 Checking environment files in $(ENVS_DIR)/...$(NC)\n"
+	@if [ -z "$(ENV_NAMES)" ]; then \
+		printf '%b' "$(RED)❌ No environment files found in $(ENVS_DIR)$(NC)\n"; \
+		printf '%b' "  Create at least one .env.* file, e.g.:\n"; \
+		printf '%b' "    cp $(ENVS_DIR)/.env.example $(ENVS_DIR)/.env.dev\n"; \
 		exit 1; \
 	fi
-endef
+	@printf '%b' "$(GREEN)✓ Found $(words $(ENV_NAMES)) environment(s): $(ENV_NAMES)$(NC)\n"
+	@for env in $(ENV_NAMES); do \
+		FILE="$(ENVS_DIR)/.env.$$env"; \
+		if [ -f "$$FILE" ]; then \
+			PROJECT_NAME=$$(grep -E '^COMPOSE_PROJECT_NAME=' "$$FILE" 2>/dev/null | cut -d'=' -f2-); \
+			if [ -n "$$PROJECT_NAME" ]; then \
+				printf '%b' "  $(GREEN)✓ $$env: $$PROJECT_NAME$(NC)\n"; \
+			else \
+				printf '%b' "  $(YELLOW)⚠ $$env: COMPOSE_PROJECT_NAME not set$(NC)\n"; \
+			fi; \
+		fi; \
+	done
 
-# Function to get project port mapping
-define get_project_ports
-	@echo "$(CYAN)🌐 Ports for project: $(1)$(NC)"; \
-	CONTAINERS=$$($(DOCKER) ps --format "{{.Names}}" --filter "name=$(1)" 2>/dev/null); \
+# =========================================================
+# Docker Operations
+# =========================================================
+
+generate-secrets:
+	@printf '%b' "$(GREEN)🔑 Checking secrets for $(CURRENT_ENV) environment...$(NC)\n"
+	@mkdir -p "$(SECRETS_DIR)" 2>/dev/null || true
+	@SECRETS_CREATED=0; \
+	if [ ! -f "$(DB_SECRET)" ]; then \
+		openssl rand -base64 32 > "$(DB_SECRET)"; \
+		printf '%b' "  $(GREEN)✅ Database secret generated$(NC)\n"; \
+		SECRETS_CREATED=1; \
+	else \
+		printf '%b' "  $(YELLOW)✓ Database secret already exists$(NC)\n"; \
+	fi; \
+	if [ ! -f "$(SECRETS_DIR)/pgadmin_password.txt" ]; then \
+		openssl rand -base64 32 > "$(SECRETS_DIR)/pgadmin_password.txt"; \
+		printf '%b' "  $(GREEN)✅ PgAdmin secret generated$(NC)\n"; \
+		SECRETS_CREATED=1; \
+	else \
+		printf '%b' "  $(YELLOW)✓ PgAdmin secret already exists$(NC)\n"; \
+	fi; \
+	chmod 600 "$(SECRETS_DIR)"/*.txt 2>/dev/null || true; \
+	if [ $$SECRETS_CREATED -eq 0 ]; then \
+		printf '%b' "$(GREEN)✓ All secrets already exist$(NC)\n"; \
+	fi
+
+check-secrets:
+	@printf '%b' "$(CYAN)🔍 Checking secrets...$(NC)\n"
+	@if [ ! -d "$(SECRETS_DIR)" ]; then \
+		printf '%b' "$(RED)❌ Secrets directory not found: $(SECRETS_DIR)$(NC)\n"; \
+		exit 1; \
+	fi; \
+	MISSING=0; \
+	if [ ! -f "$(DB_SECRET)" ]; then \
+		printf '%b' "$(RED)❌ Missing: db_password.txt$(NC)\n"; \
+		MISSING=1; \
+	fi; \
+	if [ ! -f "$(SECRETS_DIR)/pgadmin_password.txt" ]; then \
+		printf '%b' "$(RED)❌ Missing: pgadmin_password.txt$(NC)\n"; \
+		MISSING=1; \
+	fi; \
+	if [ $$MISSING -eq 0 ]; then \
+		printf '%b' "$(GREEN)✓ All secrets present$(NC)\n"; \
+	else \
+		printf '%b' "$(YELLOW)Run 'make generate-secrets' to create missing files$(NC)\n"; \
+		exit 1; \
+	fi
+
+build: test-env-files
+	@printf '%b' "$(CYAN)🏗️ Building application image for $(CURRENT_ENV) environment...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) build --quiet app 2>/dev/null || \
+	$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) build --quiet app
+
+up: test-env-files check-secrets
+	@printf '%b' "$(BLUE)🚀 Starting stack for $(CURRENT_ENV) environment...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" up -d > /dev/null 2>&1
+	@printf '%b' "$(GREEN)✅ Stack started$(NC)\n"
+	@printf '\n'
+	$(call show_env_info)
+	@printf '\n'
+	@printf '%b' "$(YELLOW)📊 Container status:$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) ps --all 2>/dev/null | tail -n +2
+
+stop:
+	@printf '%b' "$(YELLOW)⏸️ Stopping containers for $(CURRENT_ENV) environment...$(NC)\n"
+	@CONTAINERS=$$($(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) ps -q 2>/dev/null); \
 	if [ -z "$$CONTAINERS" ]; then \
-		echo "  $(YELLOW)No running containers$(NC)"; \
+		printf '%b' "  $(GRAY)ℹ No running containers to stop$(NC)\n"; \
 	else \
 		for container in $$CONTAINERS; do \
-			echo "  Container: $$container"; \
-			PORTS=$$($(DOCKER) port "$$container" 2>/dev/null); \
+			NAME=$$($(DOCKER) ps --format "{{.Names}}" --filter "id=$$container" 2>/dev/null); \
+			printf '%b' "  $(YELLOW)⏸️ Stopping: $$NAME$(NC)\n"; \
+		done; \
+		printf '\n'; \
+		$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" stop; \
+		printf '%b' "\n  $(GREEN)✅ Containers stopped$(NC)\n"; \
+	fi
+
+down:
+	@printf '%b' "$(RED)🛑 Stopping and removing containers & networks$(NC)\n"
+	@printf '%b' "$(GRAY)Step 1: Stopping containers...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" stop
+	@printf '%b' "$(GRAY)Step 2: Removing containers and networks...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" down
+	@printf '%b' "$(GREEN)✅ Containers and networks removed$(NC)\n"
+
+clean: down
+	@printf '%b' "\n$(MAGENTA)🧹 Clean completed: containers & networks removed$(NC)\n"
+
+clean-volumes:
+	$(call check_containers_for_volumes,$(COMPOSE_PROJECT_NAME))
+	$(call remove_resource,volumes,$(COMPOSE_PROJECT_NAME),volume ls -q,Name,volume rm -f)
+
+clean-images:
+	$(call check_containers_for_volumes,$(COMPOSE_PROJECT_NAME))
+	$(call remove_project_images,$(COMPOSE_PROJECT_NAME))
+
+clean-networks:
+	$(call remove_resource,networks,$(COMPOSE_PROJECT_NAME),network ls -q,Name,network rm)
+
+clean-build-cache:
+	$(call clean_project_build_cache,$(COMPOSE_PROJECT_NAME))
+
+clean-all: clean-volumes clean-images clean-networks clean-build-cache
+	@printf '%b' "$(GREEN)✅ All project resources cleaned (except containers)$(NC)\n"
+
+# =========================================================
+# Logs & Shell
+# =========================================================
+
+logs:
+	@printf '%b' "$(CYAN)📋 Logs for $(CURRENT_ENV) environment:$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) logs -f --tail=100 2>/dev/null
+
+logs-pgadmin:
+	@printf '%b' "$(CYAN)📋 PgAdmin logs for $(CURRENT_ENV) environment:$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) logs -f --tail=100 pgadmin 2>/dev/null
+
+logs-db:
+	@printf '%b' "$(CYAN)📋 Database logs for $(CURRENT_ENV) environment:$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) logs -f --tail=100 db 2>/dev/null
+
+logs-app:
+	@printf '%b' "$(CYAN)📋 App logs for $(CURRENT_ENV) environment:$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) logs -f --tail=100 app 2>/dev/null
+
+shell:
+	@printf '%b' "$(BLUE)🐚 Connecting to app container ($(CURRENT_ENV))...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) exec app sh 2>/dev/null
+
+# =========================================================
+# Monitoring
+# =========================================================
+
+ps:
+	@printf '%b' "$(CYAN)📊 Containers for $(CURRENT_ENV) environment:$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) ps --all 2>/dev/null || \
+	printf '%b' "$(YELLOW)⚠ No containers found$(NC)\n"
+
+stats:
+	@printf '%b' "$(CYAN)📈 Resource usage for $(CURRENT_ENV):$(NC)\n"
+	@IDS=$$($(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) ps -q 2>/dev/null); \
+	if [ -z "$$IDS" ]; then \
+		printf '%b' "$(YELLOW)⚠ No running containers$(NC)\n"; \
+	else \
+		$(DOCKER) stats --no-stream $$IDS 2>/dev/null || true; \
+	fi
+
+ports:
+	@printf '%b' "$(CYAN)🌐 Port mapping for $(COMPOSE_PROJECT_NAME):$(NC)\n"
+	@CONTAINERS=$$($(DOCKER) ps --format "{{.Names}}" --filter "name=$(COMPOSE_PROJECT_NAME)" 2>/dev/null); \
+	if [ -z "$$CONTAINERS" ]; then \
+		printf '%b' "  $(YELLOW)⚠ No running containers$(NC)\n"; \
+	else \
+		for c in $$CONTAINERS; do \
+			printf '%b' "  📦 $$c\n"; \
+			PORTS=$$($(DOCKER) port "$$c" 2>/dev/null); \
 			if [ -n "$$PORTS" ]; then \
-				echo "$$PORTS" | while read line; do \
-					[ -n "$$line" ] && echo "    $$line"; \
+				echo "$$PORTS" | while IFS= read -r p; do \
+					[ -n "$$p" ] && printf '    %s\n' "$$p"; \
 				done; \
 			else \
-				echo "    $(GRAY)No exposed ports$(NC)"; \
+				printf '%b' "    $(GRAY)No exposed ports$(NC)\n"; \
 			fi; \
 		done; \
 	fi
-endef
 
-# Function to clean project build cache
-define clean_project_build_cache
-	@echo "$(MAGENTA)🧹 Cleaning build cache for $(1)...$(NC)"; \
-	$(DOCKER) builder prune --filter label=com.docker.compose.project=$(1) -f > /dev/null 2>&1 || true
-endef
-
-# Function to remove ALL images for a project
-define remove_all_project_images
-	@echo "$(RED)🔥 Removing ALL images for $(1)...$(NC)"; \
-	# Remove app image \
-	echo "  Removing app image: $(1)-app:latest"; \
-	$(DOCKER) rmi -f "$(1)-app:latest" 2>/dev/null || echo "    $(YELLOW)App image not found$(NC)"; \
-	# Remove pgadmin if not used elsewhere \
-	PGADMIN_USERS=$$($(DOCKER) ps -a --filter ancestor=dpage/pgadmin4:latest --format "{{.Names}}" 2>/dev/null | grep -c . || echo "0"); \
-	if [ "$$PGADMIN_USERS" -le 1 ]; then \
-		echo "  Removing pgadmin image"; \
-		$(DOCKER) rmi -f dpage/pgadmin4:latest 2>/dev/null || echo "    $(YELLOW)PgAdmin image not found or in use$(NC)"; \
+check-ports:
+	@printf '%b' "$(CYAN)🔍 Checking port availability...$(NC)\n"
+	@PGPORT=$$(grep -E '^PGADMIN_PORT=' "$(ENV_FILE)" 2>/dev/null | cut -d'=' -f2- || echo "8080"); \
+	printf '%b' "$(GRAY) • PGAdmin:$(NC) $$PGPORT → "; \
+	if command -v ss >/dev/null 2>&1; then \
+		ss -tln | grep -q ":$$PGPORT " && printf '%b' "$(RED)BUSY$(NC)\n" || printf '%b' "$(GREEN)FREE$(NC)\n"; \
+	elif command -v netstat >/dev/null 2>&1; then \
+		netstat -tln | grep -q ":$$PGPORT " && printf '%b' "$(RED)BUSY$(NC)\n" || printf '%b' "$(GREEN)FREE$(NC)\n"; \
 	else \
-		echo "  $(YELLOW)⚠ pgadmin image is used by $$PGADMIN_USERS container(s)$(NC)"; \
-	fi; \
-	# Remove postgres if not used elsewhere \
-	POSTGRES_USERS=$$($(DOCKER) ps -a --filter ancestor=postgres:18.1-bookworm --format "{{.Names}}" 2>/dev/null | grep -c . || echo "0"); \
-	if [ "$$POSTGRES_USERS" -le 1 ]; then \
-		echo "  Removing postgres image"; \
-		$(DOCKER) rmi -f postgres:18.1-bookworm 2>/dev/null || echo "    $(YELLOW)Postgres image not found or in use$(NC)"; \
-	else \
-		echo "  $(YELLOW)⚠ postgres image is used by $$POSTGRES_USERS container(s)$(NC)"; \
+		printf '%b' "$(YELLOW)UNKNOWN$(NC)\n"; \
 	fi
-endef
+	@printf '%b' "$(GRAY) • PostgreSQL:$(NC) 5432 → "; \
+	if command -v ss >/dev/null 2>&1; then \
+		ss -tln | grep -q ":5432 " && printf '%b' "$(RED)BUSY$(NC)\n" || printf '%b' "$(GREEN)FREE$(NC)\n"; \
+	elif command -v netstat >/dev/null 2>&1; then \
+		netstat -tln | grep -q ":5432 " && printf '%b' "$(RED)BUSY$(NC)\n" || printf '%b' "$(GREEN)FREE$(NC)\n"; \
+	else \
+		printf '%b' "$(YELLOW)UNKNOWN$(NC)\n"; \
+	fi
 
-# ---------------------------------------------------------
-.PHONY: help \
-	docker-generate-secrets docker-build \
-	docker-up-dev docker-down-dev docker-clean-dev docker-clean-volumes-dev \
-	docker-up-prod docker-down-prod docker-clean-prod docker-clean-volumes-prod \
-	docker-clean-all docker-clean-volumes-all \
-	docker-logs-dev docker-logs-prod \
-	docker-shell-dev docker-shell-prod \
-	docker-ps-dev docker-ps-prod docker-ps-all \
-	docker-stats-dev docker-stats-prod docker-stats-all \
-	docker-df docker-disk docker-disk-project \
-	docker-check-ports docker-ports-dev docker-ports-prod docker-ports-all \
-	docker-rmi-dev docker-rmi-prod docker-rmi-all \
-	docker-clean-images-dev docker-clean-images-prod docker-clean-images-all \
-	docker-nuke-dev docker-nuke-prod docker-nuke-all
+df:
+	@printf '%b' "$(CYAN)📊 Docker disk usage:$(NC)\n"
+	@$(DOCKER) system df 2>/dev/null || true
+
+disk:
+	@printf '%b' "$(CYAN)💾 Detailed disk usage:$(NC)\n"
+	@$(DOCKER) system df --verbose 2>/dev/null || true
+
+# =========================================================
+# NUKE — Complete destruction
+# =========================================================
+
+nuke:
+	@printf '%b' "$(RED)💣 COMPLETE DESTRUCTION for $(CURRENT_ENV) environment$(NC)\n"
+	@printf '%b' "$(YELLOW)This will remove:$(NC)\n"
+	@printf '  • Containers and networks\n'
+	@printf '  • Project volumes\n'
+	@printf '  • Project images\n'
+	@printf '  • Build cache\n'
+	@printf '\n'
+	@printf '%b' "$(YELLOW)Are you sure? [y/N]: $(NC)"; \
+	read -r confirm; \
+	if [ "$$confirm" != "y" ] && [ "$$confirm" != "Y" ]; then \
+		printf '%b' "$(YELLOW)Cancelled$(NC)\n"; \
+		exit 0; \
+	fi
+	@printf '\n'
+
+	@printf '%b' "$(MAGENTA)1️⃣  Stopping and removing containers and networks$(NC)\n"
+	@printf '%b' "$(GRAY)  Stopping containers...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" stop > /dev/null 2>&1 || true
+	@printf '%b' "$(GRAY)  Removing containers and networks...$(NC)\n"
+	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" down > /dev/null 2>&1 || true
+	@printf '%b' "$(GREEN)  ✅ Containers and networks removed$(NC)\n"
+
+	@printf '%b' "$(MAGENTA)2️⃣  Removing volumes$(NC)\n"
+	$(call remove_resource,volumes,$(COMPOSE_PROJECT_NAME),volume ls -q,Name,volume rm -f)
+
+	@printf '%b' "$(MAGENTA)3️⃣  Removing images$(NC)\n"
+	$(call remove_project_images,$(COMPOSE_PROJECT_NAME))
+
+	@printf '%b' "$(MAGENTA)4️⃣  Cleaning build cache$(NC)\n"
+	$(call clean_project_build_cache,$(COMPOSE_PROJECT_NAME))
+
+	@printf '\n'
+	@printf '%b' "$(GREEN)✅ $(CURRENT_ENV) environment fully destroyed$(NC)\n"
 
 # =========================================================
 # Help
 # =========================================================
 
 help:
-	@echo "$(GREEN)🚀 $(PROJECT) — Docker Toolkit$(NC)"
-	@echo ""
-	@echo "$(CYAN)■ Setup$(NC)"
-	@echo "  $(GREEN)docker-generate-secrets$(NC)   Generate secrets"
-	@echo "  $(GREEN)docker-build$(NC)             Build app image"
-	@echo ""
-	@echo "$(CYAN)■ Development$(NC)"
-	@echo "  $(BLUE)docker-up-dev$(NC)            Start stack"
-	@echo "  $(RED)docker-down-dev$(NC)           Stop stack"
-	@echo "  $(MAGENTA)docker-clean-dev$(NC)      Stop + remove containers & volumes"
-	@echo "  $(MAGENTA)docker-clean-volumes-dev$(NC)  Remove ONLY volumes"
-	@echo "  $(RED)docker-nuke-dev$(NC)           NUKE: Remove EVERYTHING (images too!)"
-	@echo ""
-	@echo "$(CYAN)■ Production$(NC)"
-	@echo "  $(BLUE)docker-up-prod$(NC)           Start stack"
-	@echo "  $(RED)docker-down-prod$(NC)          Stop stack"
-	@echo "  $(MAGENTA)docker-clean-prod$(NC)     Stop + remove containers & volumes"
-	@echo "  $(MAGENTA)docker-clean-volumes-prod$(NC) Remove ONLY volumes"
-	@echo "  $(RED)docker-nuke-prod$(NC)          NUKE: Remove EVERYTHING (images too!)"
-	@echo ""
-	@echo "$(CYAN)■ Global Cleanup$(NC)"
-	@echo "  $(MAGENTA)docker-clean-all$(NC)       Clean BOTH stacks"
-	@echo "  $(MAGENTA)docker-clean-volumes-all$(NC)  Remove ALL project volumes"
-	@echo "  $(MAGENTA)docker-clean-images-dev$(NC) Remove DEV images (app only)"
-	@echo "  $(MAGENTA)docker-clean-images-prod$(NC) Remove PROD images (app only)"
-	@echo "  $(MAGENTA)docker-clean-images-all$(NC)  Remove ALL project app images"
-	@echo "  $(RED)docker-nuke-all$(NC)           NUKE ALL: Remove EVERYTHING for both envs"
-	@echo ""
-	@echo "$(CYAN)■ Logs & Shell$(NC)"
-	@echo "  $(CYAN)docker-logs-dev$(NC)          Follow dev logs"
-	@echo "  $(CYAN)docker-logs-prod$(NC)         Follow prod logs"
-	@echo "  $(BLUE)docker-shell-dev$(NC)         Shell in dev app"
-	@echo "  $(BLUE)docker-shell-prod$(NC)        Shell in prod app"
-	@echo ""
-	@echo "$(CYAN)■ Monitoring$(NC)"
-	@echo "  $(CYAN)docker-ps-dev$(NC)            List dev containers"
-	@echo "  $(CYAN)docker-ps-prod$(NC)           List prod containers"
-	@echo "  $(CYAN)docker-ps-all$(NC)            List all project containers"
-	@echo "  $(CYAN)docker-stats-dev$(NC)         Resource usage (dev)"
-	@echo "  $(CYAN)docker-stats-prod$(NC)        Resource usage (prod)"
-	@echo "  $(CYAN)docker-stats-all$(NC)         Resource usage (all)"
-	@echo "  $(CYAN)docker-df$(NC)                Docker disk usage"
-	@echo "  $(CYAN)docker-disk$(NC)              Detailed disk usage"
-	@echo "  $(CYAN)docker-disk-project$(NC)      Project-specific disk usage"
-	@echo ""
-	@echo "$(CYAN)■ Network & Ports$(NC)"
-	@echo "  $(CYAN)docker-check-ports$(NC)       Check used ports"
-	@echo "  $(CYAN)docker-ports-dev$(NC)         Show DEV port mapping"
-	@echo "  $(CYAN)docker-ports-prod$(NC)        Show PROD port mapping"
-	@echo "  $(CYAN)docker-ports-all$(NC)         Show ALL port mappings"
-
-# =========================================================
-# Docker — Secrets
-# =========================================================
-
-docker-generate-secrets:
-	@echo "$(GREEN)🔑 Generating secrets...$(NC)"
-	@mkdir -p $(SECRETS_DIR)
-	@if [ ! -f "$(DB_SECRET)" ]; then \
-		openssl rand -base64 32 > "$(DB_SECRET)"; \
-		echo "$(GREEN)✅ DB secret generated$(NC)"; \
-	else \
-		echo "$(YELLOW)✓ DB secret exists$(NC)"; \
-	fi
-	@if [ ! -f "$(SECRETS_DIR)/pgadmin_password.txt" ]; then \
-		openssl rand -base64 32 > "$(SECRETS_DIR)/pgadmin_password.txt"; \
-		echo "$(GREEN)✅ PgAdmin secret generated$(NC)"; \
-	else \
-		echo "$(YELLOW)✓ PgAdmin secret exists$(NC)"; \
-	fi
-	@chmod 600 $(SECRETS_DIR)/*.txt 2>/dev/null || true
-
-# =========================================================
-# Docker — Build
-# =========================================================
-
-docker-build:
-	@echo "$(CYAN)🏗️ Building app image...$(NC)"
-	@$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) build --quiet app
-
-# =========================================================
-# Docker — Development Stack
-# =========================================================
-
-docker-up-dev: docker-generate-secrets
-	@echo "$(BLUE)🚀 Starting DEV stack...$(NC)"
-	@$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) --profile dev up -d --quiet-pull
-
-docker-down-dev:
-	@echo "$(RED)🛑 Stopping DEV stack...$(NC)"
-	@$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) --profile dev down
-
-docker-clean-dev: docker-down-dev
-	@echo "$(MAGENTA)🧹 Removing DEV containers and volumes...$(NC)"
-	@$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) --profile dev down -v --remove-orphans
-
-docker-clean-volumes-dev:
-	$(call check_running_containers,database-module-dev,dev)
-	$(call remove_project_volumes,database-module-dev)
-
-# =========================================================
-# Docker — Production Stack
-# =========================================================
-
-docker-up-prod: docker-generate-secrets docker-build
-	@echo "$(BLUE)🏭 Starting PROD stack...$(NC)"
-	@$(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) --profile prod up -d --quiet-pull
-
-docker-down-prod:
-	@echo "$(RED)🛑 Stopping PROD stack...$(NC)"
-	@$(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) --profile prod down
-
-docker-clean-prod: docker-down-prod
-	@echo "$(MAGENTA)🧹 Removing PROD containers and volumes...$(NC)"
-	@$(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) --profile prod down -v --remove-orphans
-
-docker-clean-volumes-prod:
-	$(call check_running_containers,database-module-prod,prod)
-	$(call remove_project_volumes,database-module-prod)
-
-# =========================================================
-# Docker — Global Cleanup
-# =========================================================
-
-docker-clean-all: docker-clean-dev docker-clean-prod
-	@echo "$(GREEN)✅ Both DEV and PROD cleaned.$(NC)"
-
-docker-clean-volumes-all: docker-clean-volumes-dev docker-clean-volumes-prod
-	@echo "$(GREEN)✅ All project volumes removed.$(NC)"
-
-# =========================================================
-# Docker — Image Management (APP ONLY)
-# =========================================================
-
-docker-rmi-dev:
-	$(call check_running_containers,database-module-dev,dev)
-	@echo "$(MAGENTA)🗑️ Removing DEV app image...$(NC)"
-	@if $(DOCKER) rmi -f database-module-dev-app:latest 2>/dev/null; then \
-		echo "$(GREEN)✅ DEV app image removed$(NC)"; \
-	else \
-		echo "$(YELLOW)⚠ DEV app image not found$(NC)"; \
-	fi
-
-docker-rmi-prod:
-	$(call check_running_containers,database-module-prod,prod)
-	@echo "$(MAGENTA)🗑️ Removing PROD app image...$(NC)"
-	@if $(DOCKER) rmi -f database-module-prod-app:latest 2>/dev/null; then \
-		echo "$(GREEN)✅ PROD app image removed$(NC)"; \
-	else \
-		echo "$(YELLOW)⚠ PROD app image not found$(NC)"; \
-	fi
-
-docker-rmi-all: docker-rmi-dev docker-rmi-prod
-	@echo "$(GREEN)✅ All project app images removed.$(NC)"
-
-docker-clean-images-dev: docker-rmi-dev
-	$(call clean_project_build_cache,database-module-dev)
-
-docker-clean-images-prod: docker-rmi-prod
-	$(call clean_project_build_cache,database-module-prod)
-
-docker-clean-images-all: docker-clean-images-dev docker-clean-images-prod
-	@echo "$(GREEN)✅ All project images and caches removed.$(NC)"
-
-# =========================================================
-# Docker — NUKE Commands (COMPLETE DESTRUCTION)
-# =========================================================
-
-docker-nuke-dev:
-	@echo "$(RED)💣 NUKE: Removing EVERYTHING for DEV...$(NC)"
-	@echo "$(YELLOW)This will remove:$(NC)"
-	@echo "  - DEV containers"
-	@echo "  - DEV volumes"
-	@echo "  - DEV app image"
-	@echo "  - pgadmin image (if only used by DEV)"
-	@echo "  - postgres image (if only used by DEV)"
-	@echo ""
-	@printf "$(YELLOW)Are you sure? [y/N]: $(NC)"; \
-	read confirm; \
-	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
-		echo "$(RED)Stopping DEV containers...$(NC)"; \
-		-$(DC_DEV) down 2>/dev/null || true; \
-		$(call remove_project_volumes,database-module-dev); \
-		$(call remove_all_project_images,database-module-dev); \
-		$(call clean_project_build_cache,database-module-dev); \
-		echo "$(GREEN)✅ DEV environment NUKED.$(NC)"; \
-	else \
-		echo "$(YELLOW)Nuke cancelled.$(NC)"; \
-	fi
-
-docker-nuke-prod:
-	@echo "$(RED)💣 NUKE: Removing EVERYTHING for PROD...$(NC)"
-	@echo "$(YELLOW)This will remove:$(NC)"
-	@echo "  - PROD containers"
-	@echo "  - PROD volumes"
-	@echo "  - PROD app image"
-	@echo "  - pgadmin image (if only used by PROD)"
-	@echo "  - postgres image (if only used by PROD)"
-	@echo ""
-	@printf "$(YELLOW)Are you sure? [y/N]: $(NC)"; \
-	read confirm; \
-	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
-		echo "$(RED)Stopping PROD containers...$(NC)"; \
-		-$(DC_PROD) down 2>/dev/null || true; \
-		$(call remove_project_volumes,database-module-prod); \
-		$(call remove_all_project_images,database-module-prod); \
-		$(call clean_project_build_cache,database-module-prod); \
-		echo "$(GREEN)✅ PROD environment NUKED.$(NC)"; \
-	else \
-		echo "$(YELLOW)Nuke cancelled.$(NC)"; \
-	fi
-
-docker-nuke-all:
-	@echo "$(RED)💣💣 NUKE ALL: Removing EVERYTHING for both environments$(NC)"
-	@echo "$(YELLOW)This will remove:$(NC)"
-	@echo "  - ALL containers (DEV & PROD)"
-	@echo "  - ALL volumes (DEV & PROD)"
-	@echo "  - ALL images (app, pgadmin, postgres)"
-	@echo "  - ALL build cache"
-	@echo ""
-	@echo "$(RED)WARNING: This cannot be undone!$(NC)"
-	@echo ""
-	@printf "$(YELLOW)Type 'NUKE' to confirm: $(NC)"; \
-	read confirm; \
-	if [ "$$confirm" = "NUKE" ]; then \
-		echo "$(RED)Initiating complete nuke...$(NC)"; \
-		echo "$(RED)Stopping all containers...$(NC)"; \
-		-$(DC_DEV) down 2>/dev/null || true; \
-		-$(DC_PROD) down 2>/dev/null || true; \
-		echo "$(RED)Removing all volumes...$(NC)"; \
-		$(call remove_project_volumes,database-module-dev); \
-		$(call remove_project_volumes,database-module-prod); \
-		echo "$(RED)Removing ALL images...$(NC)"; \
-		$(DOCKER) rmi -f database-module-dev-app:latest 2>/dev/null || true; \
-		$(DOCKER) rmi -f database-module-prod-app:latest 2>/dev/null || true; \
-		$(DOCKER) rmi -f dpage/pgadmin4:latest 2>/dev/null || true; \
-		$(DOCKER) rmi -f postgres:18.1-bookworm 2>/dev/null || true; \
-		echo "$(RED)Cleaning all build cache...$(NC)"; \
-		$(DOCKER) builder prune -a -f > /dev/null 2>&1 || true; \
-		$(DOCKER) system prune -f > /dev/null 2>&1 || true; \
-		echo "$(GREEN)✅✅ COMPLETE NUKED. System is clean.$(NC)"; \
-	else \
-		echo "$(YELLOW)Nuke cancelled.$(NC)"; \
-	fi
-
-# =========================================================
-# Docker — Logs & Shell
-# =========================================================
-
-docker-logs-dev:
-	@$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) logs -f
-
-docker-logs-prod:
-	@$(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) logs -f
-
-docker-shell-dev:
-	@$(DC_DEV) $(COMPOSE_BASE) exec app sh
-
-docker-shell-prod:
-	@$(DC_PROD) $(COMPOSE_BASE) exec app sh
-
-# =========================================================
-# Docker — Monitoring
-# =========================================================
-
-docker-ps-dev:
-	@$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) ps --all
-
-docker-ps-prod:
-	@$(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) ps --all
-
-docker-ps-all:
-	@echo "$(CYAN)📊 DEV:$(NC)"
-	@$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) ps --all 2>/dev/null || echo "$(YELLOW)No DEV stack.$(NC)"
-	@echo ""
-	@echo "$(CYAN)📊 PROD:$(NC)"
-	@$(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) ps --all 2>/dev/null || echo "$(YELLOW)No PROD stack.$(NC)"
-
-docker-stats-dev:
-	@IDS=$$($(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) ps -q 2>/dev/null); \
-	if [ -z "$$IDS" ]; then \
-		echo "$(YELLOW)No running DEV containers.$(NC)"; \
-	else \
-		$(DOCKER) stats --no-stream $$IDS; \
-	fi
-
-docker-stats-prod:
-	@IDS=$$($(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) ps -q 2>/dev/null); \
-	if [ -z "$$IDS" ]; then \
-		echo "$(YELLOW)No running PROD containers.$(NC)"; \
-	else \
-		$(DOCKER) stats --no-stream $$IDS; \
-	fi
-
-docker-stats-all:
-	@IDS="$$( \
-		$(DC_DEV) $(COMPOSE_BASE) $(COMPOSE_DEV) ps -q 2>/dev/null; \
-		$(DC_PROD) $(COMPOSE_BASE) $(COMPOSE_PROD) ps -q 2>/dev/null \
-	)"; \
-	if [ -z "$$IDS" ]; then \
-		echo "$(YELLOW)No running project containers.$(NC)"; \
-	else \
-		$(DOCKER) stats --no-stream $$IDS; \
-	fi
-
-docker-df:
-	@echo "$(CYAN)📊 Docker disk usage:$(NC)"
-	@$(DOCKER) system df
-
-docker-disk:
-	@echo "$(CYAN)💾 Detailed Docker disk usage:$(NC)"
-	@$(DOCKER) system df --verbose
-
-docker-disk-project:
-	@echo "$(CYAN)💾 Project-specific disk usage:$(NC)"
-	@echo "$(YELLOW)Images:$(NC)"
-	@$(DOCKER) images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" --filter "reference=database-module*" 2>/dev/null || echo "  $(YELLOW)No project images$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Volumes:$(NC)"
-	@$(DOCKER) volume ls --format "table {{.Name}}\t{{.Driver}}\t{{.Mountpoint}}" --filter "name=database-module" 2>/dev/null || echo "  $(YELLOW)No project volumes$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Containers (all statuses):$(NC)"
-	@$(DOCKER) ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" --filter "name=database-module" 2>/dev/null || echo "  $(YELLOW)No project containers$(NC)"
-
-# =========================================================
-# Docker — Network & Ports
-# =========================================================
-
-docker-check-ports:
-	@echo "$(CYAN)🔍 Checking used ports...$(NC)"
-	@echo "$(YELLOW)Project ports:$(NC)"
-	@echo "  Port 8080 (dev pgadmin):" && (sudo lsof -i :8080 2>/dev/null | head -5 || echo "    $(GREEN)✅ Free$(NC)")
-	@echo "  Port 8081 (prod pgadmin):" && (sudo lsof -i :8081 2>/dev/null | head -5 || echo "    $(GREEN)✅ Free$(NC)")
-	@echo "  Port 5432 (postgres):" && (sudo lsof -i :5432 2>/dev/null | head -5 || echo "    $(GREEN)✅ Free$(NC)")
-	@echo ""
-	@echo "$(YELLOW)All Docker container ports:$(NC)"
-	@$(DOCKER) ps --format "table {{.Names}}\t{{.Ports}}" | grep -E "(8080|8081|5432|80|443)" 2>/dev/null || echo "  $(YELLOW)No relevant ports$(NC)"
-
-docker-ports-dev:
-	$(call get_project_ports,database-module-dev)
-
-docker-ports-prod:
-	$(call get_project_ports,database-module-prod)
-
-docker-ports-all:
-	@echo "$(CYAN)🌐 All project port mappings:$(NC)"
-	@echo ""
-	$(call get_project_ports,database-module-dev)
-	@echo ""
-	$(call get_project_ports,database-module-prod)
+	@printf '%b' "$(GREEN)🚀 $(PROJECT) — Docker Control$(NC)\n"
+	@printf '\n'
+	@printf '%b' "$(CYAN)📦 Active environment: $(GREEN)$(CURRENT_ENV)$(NC)\n"
+	@printf '\n'
+	@printf '%b' "$(CYAN)■ Environment$(NC)\n"
+	@printf '  env env-list env-status test-env-files check-secrets\n'
+	@printf '  env-dev env-prod      # Or env-<name> for any environment\n'
+	@printf '\n'
+	@printf '%b' "$(CYAN)■ Lifecycle$(NC)\n"
+	@printf '  up down stop build clean\n'
+	@printf '\n'
+	@printf '%b' "$(CYAN)■ Cleanup$(NC)\n"
+	@printf '  clean-volumes clean-images clean-networks clean-build-cache clean-all nuke\n'
+	@printf '\n'
+	@printf '%b' "$(CYAN)■ Debug$(NC)\n"
+	@printf '  logs logs-pgadmin logs-db logs-app shell ps stats ports check-ports df disk\n'
+	@printf '\n'
+	@printf '%b' "$(CYAN)■ Secrets$(NC)\n"
+	@printf '  generate-secrets\n'
+	@printf '\n'
+	@printf '%b' "$(GRAY)ℹ Environment files in: $(ENVS_DIR)/$(NC)\n"
+	@printf '%b' "$(GRAY)ℹ Active env stored in: $(ACTIVE_ENV_FILE)$(NC)\n"
+	@printf '%b' "$(GRAY)ℹ Available environments: $(ENV_NAMES)$(NC)\n"

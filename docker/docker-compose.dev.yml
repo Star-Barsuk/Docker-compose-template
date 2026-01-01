@@ -19,7 +19,7 @@ services:
       DEBUG: 1
 
   pgadmin:
-    image: dpage/pgadmin4:latest
+    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:latest}
     profiles: ["dev"]
     restart: unless-stopped
     hostname: pgadmin-dev

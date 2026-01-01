@@ -32,19 +32,18 @@ build/
 *.egg-info/
 
 # Environment files
-.env.dev
-.env.prod
-.env.local
-.env.*.local
+*.env.dev
+*.env.prod
+*.env.local
+*.env.*.local
+!*.env.dev.example
+!*.env.prod.example
 
-# Environment files - But allow example files
-!.env.dev.example
-!.env.prod.example
+# Active environment
+.active-env
 
 # Secrets
 docker/secrets/*.txt
-
-# Secrets - But allow example files
 !docker/secrets/*.example.txt
 
 # Context
