@@ -1,0 +1,33 @@
+# Database-only setup for local development
+# App runs locally on host, connects to Dockerized DB
+
+services:
+  db:
+    extends:
+      file: docker-compose.base.yml
+      service: db
+    profiles: ["local"]
+    ports:
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
+    security_opt: []
+    read_only: false
+    tmpfs: []
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DB_USER:-appuser_local}
+      POSTGRES_DB: ${DB_NAME:-appdb_local}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+
+
+  app:
+    profiles: ["disabled"]
+    extends:
+      file: docker-compose.base.yml
+      service: app
+
+  pgadmin:
+    profiles: ["disabled"]
+    extends:
+      file: docker-compose.base.yml
+      service: pgadmin

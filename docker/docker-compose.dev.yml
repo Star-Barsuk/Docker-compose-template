@@ -1,45 +1,64 @@
-# docker/docker-compose.dev.yml
-
-volumes:
-  pgadmin_data:
-    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_pgadmin_data
+# Development environment: Application + Database + PgAdmin
 
 services:
   app:
+    extends:
+      file: docker-compose.base.yml
+      service: app
     profiles: ["dev"]
-    volumes:
-      - ../src:/app/src:rw,cached
-    read_only: false
-    security_opt: []
-    cap_drop: []
-    cap_add: []
+    ports:
+      - "${APP_PORT:-8000}:8000"
     environment:
-      PYTHONPATH: /app/src
+      RELOAD: ${RELOAD:-1}
       PYTHONUNBUFFERED: 1
-      DEBUG: 1
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs: []
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+      - NET_BIND_SERVICE
+    cap_add:
+      - SETGID
+      - SETUID
+
+  db:
+    extends:
+      file: docker-compose.base.yml
+      service: db
+    profiles: ["dev"]
+    ports:
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs: []
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
 
   pgadmin:
-    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:latest}
+    extends:
+      file: docker-compose.base.yml
+      service: pgadmin
     profiles: ["dev"]
-    restart: unless-stopped
-    hostname: pgadmin-dev
-    user: "0:0"  # <-- FIX
-    secrets:
-      - pgadmin_password
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin-dev@example.com}
-      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
     ports:
       - "${PGADMIN_PORT:-8080}:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      internal:
-        aliases:
-          - pgadmin.dev
-    depends_on:
-      db:
-        condition: service_healthy
-    security_opt: []
-    cap_drop: []
-    cap_add: []
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs: []
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE

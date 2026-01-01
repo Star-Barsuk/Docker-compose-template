@@ -1,38 +1,43 @@
-# docker/docker-compose.prod.yml
-
-volumes:
-  pgadmin_data:
-    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_pgadmin_data
+# Production environment with full stack
 
 services:
   app:
+    extends:
+      file: docker-compose.base.yml
+      service: app
     profiles: ["prod"]
-    read_only: true
-    # tmpfs:
-      # - /tmp
-    security_opt: []
+    <<: *default-security
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - CHOWN
+    ports: []
+
+  db:
+    extends:
+      file: docker-compose.base.yml
+      service: db
+    profiles: ["prod"]
+    <<: *default-security
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    ports: []
 
   pgadmin:
-    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:latest}
+    extends:
+      file: docker-compose.base.yml
+      service: pgadmin
     profiles: ["prod"]
-    restart: unless-stopped
-    hostname: pgadmin-prod
-    user: "0:0"  # <-- FIX
-    secrets:
-      - pgadmin_password
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin-prod@example.com}
-      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
     ports:
       - "${PGADMIN_PORT:-8081}:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks: [internal]
-    depends_on:
-      db:
-        condition: service_healthy
-    security_opt:
-      - no-new-privileges:true
+    <<: *default-security
     cap_drop:
       - ALL
     cap_add:

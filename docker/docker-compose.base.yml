@@ -1,0 +1,100 @@
+# Base configuration shared across all environments
+
+name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}
+
+x-defaults: &default-security
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=100M
+
+x-app-defaults: &app-defaults
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  restart: unless-stopped
+  secrets:
+    - db_password
+  environment:
+    DB_HOST: ${DB_HOST:-db}
+    DB_PORT: ${DB_PORT:-5432}
+    DB_NAME: ${DB_NAME:-appdb}
+    DB_USER: ${DB_USER:-appuser}
+    DB_PASSWORD_FILE: /run/secrets/db_password
+    DEBUG: ${DEBUG:-0}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  networks: [internal]
+  depends_on:
+    db:
+      condition: service_healthy
+  mem_limit: ${APP_MEMORY_LIMIT:-256m}
+  cpus: ${APP_CPU_LIMIT:-0.2}
+
+x-db-defaults: &db-defaults
+  image: ${POSTGRES_IMAGE:-postgres:latest}
+  restart: unless-stopped
+  hostname: ${DB_HOSTNAME:-db}
+  secrets:
+    - db_password
+  environment:
+    POSTGRES_USER: ${DB_USER:-appuser}
+    POSTGRES_DB: ${DB_NAME:-appdb}
+    POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    PGDATA: /var/lib/postgresql/data/pgdata
+  networks:
+    internal:
+      aliases: [database, postgres]
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-appuser} -d ${DB_NAME:-appdb}"]
+    interval: ${HEALTHCHECK_INTERVAL:-60s}
+    timeout: ${HEALTHCHECK_TIMEOUT:-5s}
+    retries: ${HEALTHCHECK_RETRIES:-5}
+    start_period: ${HEALTHCHECK_START_PERIOD:-30s}
+
+secrets:
+  db_password:
+    file: ${DB_PASSWORD_FILE:-./secrets/db_password.txt}
+  pgadmin_password:
+    file: ${PGADMIN_PASSWORD_FILE:-./secrets/pgadmin_password.txt}
+
+networks:
+  internal:
+    driver: ${COMPOSE_NETWORK_DRIVER:-bridge}
+    name: ${COMPOSE_PROJECT_NAME:-my-awesome-app}_internal
+
+volumes:
+  pgdata:
+    name: ${COMPOSE_VOLUME_PREFIX:-${COMPOSE_PROJECT_NAME:-my-awesome-app}}_pgdata
+  pgadmin_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-${COMPOSE_PROJECT_NAME:-my-awesome-app}}_pgadmin_data
+
+services:
+  app:
+    <<: *app-defaults
+
+  db:
+    <<: *db-defaults
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  pgadmin:
+    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:latest}
+    restart: unless-stopped
+    secrets:
+      - pgadmin_password
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks: [internal]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: ${HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${HEALTHCHECK_RETRIES:-3}
+      start_period: ${HEALTHCHECK_START_PERIOD:-40s}
