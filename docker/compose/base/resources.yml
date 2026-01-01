@@ -1,0 +1,28 @@
+# Resource limits configuration
+# Predefined resource profiles for different environments
+
+x-resource-profiles:
+  # Low resources
+  low:
+    cpu_limit: '0.1'
+    memory_limit: 128M
+    priority: lowest
+
+  # Medium resources
+  medium:
+    cpu_limit: '0.3'
+    memory_limit: 256M
+    priority: normal
+
+  # High resources
+  high:
+    cpu_limit: '0.5'
+    memory_limit: 512M
+    priority: high
+
+# Default health check configuration
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: ${HEALTHCHECK_INTERVAL:-30s}
+  timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+  retries: ${HEALTHCHECK_RETRIES:-3}
+  start_period: ${HEALTHCHECK_START_PERIOD:-40s}
