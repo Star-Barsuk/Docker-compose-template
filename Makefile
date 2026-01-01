@@ -191,25 +191,27 @@ env-prod:
 	$(call save_active_env,prod)
 
 env:
-	@echo "$(CYAN)🔄 Switching environment$(NC)"
-	@echo "Current environment: $(GREEN)$(CURRENT_ENV)$(NC)"
-	@echo ""
-	@echo "Select environment:"
-	@echo "  1) $(GREEN)dev$(NC)    - Development"
-	@echo "  2) $(RED)prod$(NC)   - Production"
-	@echo ""
-	@printf "$(YELLOW)Choice [1-2] (Enter=keep current): $(NC)"; \
-	read choice; \
+	@printf '%b' "$(CYAN)🔄 Switching environment$(NC)\n"
+	@printf '%b' "Current environment: $(GREEN)$(CURRENT_ENV)$(NC)\n\n"
+	@printf '%b' "Select environment:\n"
+	@printf '%b' "  1) $(GREEN)dev$(NC)    - Development\n"
+	@printf '%b' "  2) $(RED)prod$(NC)   - Production\n\n"
+	@printf '%b' "$(YELLOW)Choice [1-2] (Enter=keep current): $(NC)"
+	@bash -c 'read -r choice; \
 	if [ "$$choice" = "1" ] || [ "$$choice" = "dev" ]; then \
-		$(call save_active_env,dev); \
-		echo "Switched to: dev"; \
+		echo "Switched to: dev" && echo "dev" > "$(ACTIVE_ENV_FILE)"; \
 	elif [ "$$choice" = "2" ] || [ "$$choice" = "prod" ]; then \
-		$(call save_active_env,prod); \
-		echo "Switched to: prod"; \
+		echo "Switched to: prod" && echo "prod" > "$(ACTIVE_ENV_FILE)"; \
 	elif [ -z "$$choice" ]; then \
 		echo "Keeping current environment: $(CURRENT_ENV)"; \
 	else \
 		echo "❌ Invalid choice. Enter 1, 2, or press Enter to keep current."; \
+	fi'
+	@if [ -f "$(ACTIVE_ENV_FILE)" ]; then \
+		NEW_ENV=$$(cat "$(ACTIVE_ENV_FILE)"); \
+		if [ "$$NEW_ENV" != "$(CURRENT_ENV)" ]; then \
+			printf '%b' "$(GREEN)✓ Active environment set to: $$NEW_ENV$(NC)\n"; \
+		fi; \
 	fi
 
 # Проверка файлов окружения
