@@ -1,0 +1,73 @@
+# Application service definition
+# This service runs the main application
+
+services:
+  app:
+    # Image configuration
+    image: ${APP_IMAGE:-my-awesome-app:${APP_VERSION:-latest}}
+    build:
+      context: ${APP_BUILD_CONTEXT:-../..}
+      dockerfile: ${APP_DOCKERFILE:-docker/Dockerfile}
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+        - APP_VERSION=${APP_VERSION:-0.1.0}
+      cache_from:
+        - ${APP_IMAGE:-my-awesome-app:latest}
+
+    # Container identification
+    container_name: ${COMPOSE_PROJECT_NAME}_app
+    hostname: app
+    restart: unless-stopped
+
+    # Entrypoint
+    entrypoint: ["/app/scripts/entrypoint.app.sh"]
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: ${APP_CPU_LIMIT:-0.2}
+          memory: ${APP_MEMORY_LIMIT:-256m}
+        reservations:
+          memory: 128m
+
+    # Dependencies
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # Environment variables
+    environment:
+      # Application settings
+      PYTHONUNBUFFERED: ${PYTHONUNBUFFERED:-1}
+      PYTHONDONTWRITEBYTECODE: ${PYTHONDONTWRITEBYTECODE:-1}
+
+      # Database connection
+      # DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      DATABASE_URL: "postgresql://placeholder:placeholder@db:5432/appdb"
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-appdb}
+      DB_USER: ${DB_USER:-appuser}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_CONN_TIMEOUT: ${DB_CONN_TIMEOUT:-30}
+
+    # Secrets
+    secrets:
+      - db_password
+
+    # Networks
+    networks:
+      - internal
+
+    # Health check
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 8000), timeout=5)"]
+      start_period: 60s
+
+    # Labels for container management
+    labels:
+      - "com.example.description=Application container"
+      - "com.example.version=${APP_VERSION:-0.1.0}"
+      - "com.example.role=application"
