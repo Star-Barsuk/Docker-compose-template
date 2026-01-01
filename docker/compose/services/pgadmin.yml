@@ -1,0 +1,50 @@
+# PgAdmin service definition
+# Web-based PostgreSQL administration tool
+
+services:
+  pgadmin:
+    # PgAdmin image
+    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:latest}
+
+    # Container identification
+    container_name: ${COMPOSE_PROJECT_NAME}_pgadmin
+    hostname: pgadmin
+    restart: unless-stopped
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: ${PGADMIN_CPU_LIMIT:-0.3}
+          memory: ${PGADMIN_MEMORY_LIMIT:-256m}
+        reservations:
+          memory: 128m
+
+    # Environment variables
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+
+    # Secrets
+    secrets:
+      - pgadmin_password
+
+    # Networks
+    networks:
+      - internal
+
+    # Volumes for data persistence
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+    # Health check
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+
+    # Labels for container management
+    labels:
+      - "com.example.description=PgAdmin PostgreSQL administration"
+      - "com.example.role=admin-tool"
