@@ -32,12 +32,12 @@ build/
 *.egg-info/
 
 # Environment files
-.env.dev
-.env.prod
-.env.local
-.env.*.local
-!.env.dev.example
-!.env.prod.example
+*.env.dev
+*.env.prod
+*.env.local
+*.env.*.local
+!*.env.dev.example
+!*.env.prod.example
 
 # Active environment
 .active-env
