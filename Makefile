@@ -90,14 +90,14 @@ define show_env_info
 	fi
 endef
 
-# Enhanced check: distinguishes running vs stopped containers
 define check_containers_for_volumes
 	@ALL_CONTAINERS=$$($(DOCKER) ps -aq --filter "name=$(1)" 2>/dev/null); \
 	if [ -n "$$ALL_CONTAINERS" ]; then \
 		RUNNING=$$($(DOCKER) ps -q --filter "name=$(1)" --filter "status=running" 2>/dev/null); \
 		if [ -n "$$RUNNING" ]; then \
 			RUNNING_LIST=$$(echo "$$RUNNING" | tr '\n' ' ' | sed 's/ *$$//'); \
-			printf '%b' "$(RED)❌ $(1) containers are still RUNNING!$(NC)\n"; \
+			RUNNING_NAMES=$$($(DOCKER) ps --format "{{.Names}}" --filter "id=$$RUNNING_LIST" 2>/dev/null | tr '\n' ' '); \
+			printf '%b' "$(RED)❌ $(1) containers are still RUNNING: $$RUNNING_NAMES$(NC)\n"; \
 			printf '%b' "  → Stop them first: $(YELLOW)make stop$(NC)\n"; \
 			exit 1; \
 		else \
@@ -124,7 +124,6 @@ define remove_project_volumes
 	fi
 endef
 
-# Fixed: no @ inside variable assignments
 define remove_all_project_images
 	@printf '%b' "$(RED)🔥 Removing images for $(1)...$(NC)\n"
 	REMOVED=0; \
@@ -169,6 +168,7 @@ endef
 
 .PHONY: help \
 	env env-dev env-prod env-status \
+	test-env-files check-secrets \
 	up down stop build clean clean-volumes clean-images clean-all \
 	logs shell ps stats \
 	ports check-ports df disk \
@@ -191,55 +191,98 @@ env-prod:
 	$(call save_active_env,prod)
 
 env:
-	@printf '%b' "$(CYAN)🔄 Switching environment$(NC)\n"
-	@printf '%b' "$(YELLOW)Current environment: $(GREEN)$(CURRENT_ENV)$(NC)\n"
-	@printf '\n'
-	@printf '%b' "Select environment:\n"
-	@printf '  1) $(GREEN)dev$(NC)    - Development\n'
-	@printf '  2) $(RED)prod$(NC)   - Production\n'
-	@printf '\n'
-	@printf "$(YELLOW)Choice [1-2]: $(NC)"; \
-	read -r choice; \
-	case $$choice in \
-		1) $(call save_active_env,dev) ;; \
-		2) $(call save_active_env,prod) ;; \
-		*) printf '%b' "$(RED)❌ Invalid choice$(NC)\n" ;; \
-	esac
+	@echo "$(CYAN)🔄 Switching environment$(NC)"
+	@echo "Current environment: $(GREEN)$(CURRENT_ENV)$(NC)"
+	@echo ""
+	@echo "Select environment:"
+	@echo "  1) $(GREEN)dev$(NC)    - Development"
+	@echo "  2) $(RED)prod$(NC)   - Production"
+	@echo ""
+	@printf "$(YELLOW)Choice [1-2] (Enter=keep current): $(NC)"; \
+	read choice; \
+	if [ "$$choice" = "1" ] || [ "$$choice" = "dev" ]; then \
+		$(call save_active_env,dev); \
+		echo "Switched to: dev"; \
+	elif [ "$$choice" = "2" ] || [ "$$choice" = "prod" ]; then \
+		$(call save_active_env,prod); \
+		echo "Switched to: prod"; \
+	elif [ -z "$$choice" ]; then \
+		echo "Keeping current environment: $(CURRENT_ENV)"; \
+	else \
+		echo "❌ Invalid choice. Enter 1, 2, or press Enter to keep current."; \
+	fi
+
+# Проверка файлов окружения
+test-env-files:
+	@if [ ! -f ".env.dev" ]; then \
+		printf '%b' "$(RED)❌ Missing .env.dev$(NC)\n"; \
+		printf '%b' "  Copy from example: cp .env.example .env.dev\n"; \
+		exit 1; \
+	fi
+	@if [ ! -f ".env.prod" ]; then \
+		printf '%b' "$(RED)❌ Missing .env.prod$(NC)\n"; \
+		printf '%b' "  Copy from example: cp .env.example .env.prod\n"; \
+		exit 1; \
+	fi
+	@printf '%b' "$(GREEN)✓ All environment files present$(NC)\n"
 
 # =========================================================
 # Docker Operations
 # =========================================================
 
 generate-secrets:
-	@printf '%b' "$(GREEN)🔑 Generating secrets for $(CURRENT_ENV) environment...$(NC)\n"
+	@printf '%b' "$(GREEN)🔑 Checking secrets for $(CURRENT_ENV) environment...$(NC)\n"
 	@mkdir -p "$(SECRETS_DIR)" 2>/dev/null || true
-	@if [ ! -f "$(DB_SECRET)" ]; then \
+	@SECRETS_CREATED=0; \
+	if [ ! -f "$(DB_SECRET)" ]; then \
 		openssl rand -base64 32 > "$(DB_SECRET)"; \
-		printf '%b' "$(GREEN)✅ Database secret generated$(NC)\n"; \
+		printf '%b' "  $(GREEN)✅ Database secret generated$(NC)\n"; \
+		SECRETS_CREATED=1; \
 	else \
-		printf '%b' "$(YELLOW)✓ Database secret already exists$(NC)\n"; \
-	fi
-	@if [ ! -f "$(SECRETS_DIR)/pgadmin_password.txt" ]; then \
+		printf '%b' "  $(YELLOW)✓ Database secret already exists$(NC)\n"; \
+	fi; \
+	if [ ! -f "$(SECRETS_DIR)/pgadmin_password.txt" ]; then \
 		openssl rand -base64 32 > "$(SECRETS_DIR)/pgadmin_password.txt"; \
-		printf '%b' "$(GREEN)✅ PgAdmin secret generated$(NC)\n"; \
+		printf '%b' "  $(GREEN)✅ PgAdmin secret generated$(NC)\n"; \
+		SECRETS_CREATED=1; \
 	else \
-		printf '%b' "$(YELLOW)✓ PgAdmin secret already exists$(NC)\n"; \
+		printf '%b' "  $(YELLOW)✓ PgAdmin secret already exists$(NC)\n"; \
+	fi; \
+	chmod 600 "$(SECRETS_DIR)"/*.txt 2>/dev/null || true; \
+	if [ $$SECRETS_CREATED -eq 0 ]; then \
+		printf '%b' "$(GREEN)✓ All secrets already exist$(NC)\n"; \
 	fi
-	@chmod 600 "$(SECRETS_DIR)"/*.txt 2>/dev/null || true
 
-build:
+# Проверка секретов
+check-secrets:
+	@printf '%b' "$(CYAN)🔍 Checking secrets...$(NC)\n"
+	@MISSING=0; \
+	if [ ! -f "$(DB_SECRET)" ]; then \
+		printf '%b' "$(RED)❌ Missing: db_password.txt$(NC)\n"; \
+		MISSING=1; \
+	fi; \
+	if [ ! -f "$(SECRETS_DIR)/pgadmin_password.txt" ]; then \
+		printf '%b' "$(RED)❌ Missing: pgadmin_password.txt$(NC)\n"; \
+		MISSING=1; \
+	fi; \
+	if [ $$MISSING -eq 0 ]; then \
+		printf '%b' "$(GREEN)✓ All secrets present$(NC)\n"; \
+	else \
+		printf '%b' "$(YELLOW)Run 'make generate-secrets' to create missing files$(NC)\n"; \
+		exit 1; \
+	fi
+
+build: test-env-files
 	@printf '%b' "$(CYAN)🏗️ Building application image for $(CURRENT_ENV) environment...$(NC)\n"
 	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) build --quiet app
 
-up: generate-secrets
+# Fixed: no overlapping output
+up: test-env-files check-secrets
 	@printf '%b' "$(BLUE)🚀 Starting stack for $(CURRENT_ENV) environment...$(NC)\n"
-	$(call show_env_info)
-	@printf '\n'
-	@if [ "$(CURRENT_ENV)" = "prod" ]; then \
-		$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) build --quiet app; \
-	fi
 	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" up -d
 	@printf '%b' "$(GREEN)✅ Stack started$(NC)\n"
+	@printf '\n'
+	$(call show_env_info)
 	@printf '\n'
 	@printf '%b' "$(YELLOW)📊 Container status:$(NC)\n"
 	@$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) ps --all | tail -n +2
@@ -331,14 +374,14 @@ disk:
 	@$(DOCKER) system df --verbose
 
 # =========================================================
-# NUKE — FULLY REWRITTEN, NO DEPENDENCIES, NO FAILURES
+# NUKE — 100% STABLE, NO QUOTES, NO EOF
 # =========================================================
 
 nuke:
 	@printf '%b' "$(RED)💣 COMPLETE DESTRUCTION for $(CURRENT_ENV) environment$(NC)\n"
 	@printf '%b' "$(YELLOW)This will remove:$(NC)\n"
-	@printf '  • Containers & networks\n'
-	@printf '  • Volumes\n'
+	@printf '  • Containers and networks\n'
+	@printf '  • Project volumes\n'
 	@printf '  • Project images\n'
 	@printf '  • Build cache\n'
 	@printf '\n'
@@ -349,7 +392,7 @@ nuke:
 		exit 0; \
 	fi; \
 	printf '\n'; \
-	printf '%b' "$(MAGENTA)1️⃣  Stopping and removing containers & networks$(NC)\n"; \
+	printf '%b' "$(MAGENTA)1️⃣  Stopping and removing containers and networks$(NC)\n"; \
 	$(DC) $(COMPOSE_BASE) $(COMPOSE_OVERRIDE) --profile "$(CURRENT_ENV)" down > /dev/null 2>&1 || true; \
 	printf '%b' "$(MAGENTA)2️⃣  Removing volumes$(NC)\n"; \
 	volumes_removed=0; \
@@ -400,8 +443,16 @@ help:
 	@printf '\n'
 	@printf '%b' "$(CYAN)📦 Active environment: $(GREEN)$(CURRENT_ENV)$(NC)\n"
 	@printf '\n'
+	@printf '%b' "$(CYAN)■ Environment$(NC)\n"
+	@printf '  %b🔄%b make env           Interactive environment switcher\n' "$(CYAN)" "$(NC)"
+	@printf '  %b📊%b make env-status    Show current environment\n' "$(CYAN)" "$(NC)"
+	@printf '  %b💚%b make env-dev       Switch to development\n' "$(GREEN)" "$(NC)"
+	@printf '  %b🔴%b make env-prod      Switch to production\n' "$(RED)" "$(NC)"
+	@printf '  %b🔍%b make check-secrets Verify required secrets\n' "$(YELLOW)" "$(NC)"
+	@printf '  %b📋%b make test-env-files Check environment files\n' "$(CYAN)" "$(NC)"
+	@printf '\n'
 	@printf '%b' "$(CYAN)■ Lifecycle$(NC)\n"
-	@printf '  %b🚀%b make up            Start stack\n' "$(BLUE)" "$(NC)"
+	@printf '  %b🚀%b make up            Start stack (auto-checks secrets)\n' "$(BLUE)" "$(NC)"
 	@printf '  %b⏸️%b make stop          Stop containers (keep them)\n' "$(YELLOW)" "$(NC)"
 	@printf '  %b🛑%b make down          Stop + remove containers & networks\n' "$(RED)" "$(NC)"
 	@printf '  %b🧹%b make clean         Alias for down\n' "$(MAGENTA)" "$(NC)"
@@ -420,5 +471,9 @@ help:
 	@printf '  %b🌐%b make ports         Port mappings\n' "$(CYAN)" "$(NC)"
 	@printf '  %b🔍%b make check-ports   Check port conflicts\n' "$(CYAN)" "$(NC)"
 	@printf '  %b📊%b make df            Disk usage summary\n' "$(CYAN)" "$(NC)"
+	@printf '  %b💾%b make disk          Detailed disk usage\n' "$(CYAN)" "$(NC)"
+	@printf '\n'
+	@printf '%b' "$(CYAN)■ Secrets$(NC)\n"
+	@printf '  %b🔑%b make generate-secrets  Generate missing secrets\n' "$(GREEN)" "$(NC)"
 	@printf '\n'
 	@printf '%b' "$(GRAY)ℹ Active env stored in: $(ACTIVE_ENV_FILE)$(NC)\n"
