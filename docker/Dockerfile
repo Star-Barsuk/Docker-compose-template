@@ -63,6 +63,9 @@ COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 COPY --from=builder --chown=appuser:appgroup /app/src /app/src
 COPY --from=builder --chown=appuser:appgroup /app/scripts /app/scripts
 
+# Make executable
+RUN chmod +x /app/scripts/entrypoint.app.sh
+
 # Set Python environment
 ENV PATH="/app/.venv/bin:$PATH" \
     VIRTUAL_ENV="/app/.venv" \
