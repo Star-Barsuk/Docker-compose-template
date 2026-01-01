@@ -36,15 +36,14 @@ build/
 .env.prod
 .env.local
 .env.*.local
-
-# Environment files - But allow example files
 !.env.dev.example
 !.env.prod.example
 
+# Active environment
+.active-env
+
 # Secrets
 docker/secrets/*.txt
-
-# Secrets - But allow example files
 !docker/secrets/*.example.txt
 
 # Context
