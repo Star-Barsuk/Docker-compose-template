@@ -1,145 +1,104 @@
 #!/bin/bash
 # =============================================================================
-# CORE LIBRARY - Logging, assertions and utilities
+# CORE LIBRARY
 # =============================================================================
 
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
-# PATH CONSTANTS
+# COLOR OUTPUT
 # -----------------------------------------------------------------------------
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly PROJECT_ROOT="$(cd "$BIN_DIR/../.." && pwd)"
-readonly COMPOSE_DIR="$PROJECT_ROOT/docker/compose"
-readonly SECRETS_DIR="$PROJECT_ROOT/docker/secrets"
+if [[ -t 1 ]]; then
+    COLOR_RESET=$'\033[0m'
+    COLOR_RED=$'\033[0;31m'
+    COLOR_GREEN=$'\033[0;32m'
+    COLOR_YELLOW=$'\033[1;33m'
+    COLOR_BLUE=$'\033[0;34m'
+    COLOR_CYAN=$'\033[0;36m'
+    COLOR_GRAY=$'\033[0;90m'
+    COLOR_BOLD=$'\033[1m'
+else
+    COLOR_RESET=''; COLOR_RED=''; COLOR_GREEN=''; COLOR_YELLOW=''
+    COLOR_BLUE=''; COLOR_CYAN=''; COLOR_GRAY=''; COLOR_BOLD=''
+fi
 
-# -----------------------------------------------------------------------------
-# COLOR CONSTANTS
-# -----------------------------------------------------------------------------
-
-readonly COLOR_RESET=$'\033[0m'
-readonly COLOR_RED=$'\033[0;31m'
-readonly COLOR_GREEN=$'\033[0;32m'
-readonly COLOR_YELLOW=$'\033[1;33m'
-readonly COLOR_BLUE=$'\033[0;34m'
-readonly COLOR_CYAN=$'\033[0;36m'
-readonly COLOR_GRAY=$'\033[0;90m'
-readonly COLOR_BOLD=$'\033[1m'
-
-# -----------------------------------------------------------------------------
-# PATH HELPERS
-# -----------------------------------------------------------------------------
-bin::path() {
-    echo "$BIN_DIR"
-}
-
-root::path() {
-    echo "$PROJECT_ROOT"
-}
-
-compose::path() {
-    echo "$COMPOSE_DIR"
-}
-
-secrets::path() {
-    echo "$SECRETS_DIR"
-}
-
-# Get relative path from project root
-relpath() {
-    local path="$1"
-    local root
-    root="$(root::path)"
-    # Remove the root path prefix
-    echo "${path#$root/}"
-}
+export COLOR_RESET COLOR_RED COLOR_GREEN COLOR_YELLOW COLOR_BLUE COLOR_CYAN COLOR_GRAY COLOR_BOLD
 
 # -----------------------------------------------------------------------------
 # LOGGING FUNCTIONS
 # -----------------------------------------------------------------------------
-log::header() {
-    printf "${COLOR_CYAN}==>${COLOR_RESET} ${COLOR_BOLD}%s${COLOR_RESET}\n" "$1"
+log::header()   { printf "${COLOR_CYAN}==>${COLOR_RESET} ${COLOR_BOLD}%s${COLOR_RESET}\n" "$1"; }
+log::info()     { printf "${COLOR_BLUE}[INFO]${COLOR_RESET} %s\n" "$1"; }
+log::success()  { printf "${COLOR_GREEN}[OK]${COLOR_RESET} %s\n" "$1"; }
+log::warn()     { printf "${COLOR_YELLOW}[WARN]${COLOR_RESET} %s\n" "$1" >&2; }
+log::error()    { printf "${COLOR_RED}[ERROR]${COLOR_RESET} %s\n" "$1" >&2; }
+log::debug()    { [[ "${LOG_LEVEL:-}" == "DEBUG" ]] && printf "${COLOR_GRAY}[DEBUG]${COLOR_RESET} %s\n" "$1"; }
+log::fatal()    { log::error "$1"; exit 1; }
+
+export -f log::header log::info log::success log::warn log::error log::debug log::fatal
+
+# -----------------------------------------------------------------------------
+# PATH HELPERS
+# -----------------------------------------------------------------------------
+root::path()    { echo "$PROJECT_ROOT"; }
+compose::path() { echo "$COMPOSE_DIR"; }
+secrets::path() { echo "$SECRETS_DIR"; }
+envs::path()    { echo "$ENVS_DIR"; }
+active_env_file() { echo "$ACTIVE_ENV_FILE"; }
+
+# Get relative path from project root
+relpath() {
+    local path="${1:-}"
+    local root="${PROJECT_ROOT%/}/"
+    # Remove the root path prefix
+    echo "${path#$root}"
 }
 
-log::info() {
-    printf "${COLOR_BLUE}[INFO]${COLOR_RESET} %s\n" "$1"
-}
-
-log::success() {
-    printf "${COLOR_GREEN}[OK]${COLOR_RESET} %s\n" "$1"
-}
-
-log::warn() {
-    printf "${COLOR_YELLOW}[WARN]${COLOR_RESET} %s\n" "$1" >&2
-}
-
-log::error() {
-    printf "${COLOR_RED}[ERROR]${COLOR_RESET} %s\n" "$1" >&2
-}
-
-log::debug() {
-    [[ "${DEBUG:-0}" == "1" ]] && printf "${COLOR_GRAY}[DEBUG]${COLOR_RESET} %s\n" "$1"
-}
-
-log::fatal() {
-    log::error "$1"
-    exit 1
-}
+export -f root::path compose::path secrets::path envs::path active_env_file relpath
 
 # -----------------------------------------------------------------------------
 # VALIDATION FUNCTIONS
 # -----------------------------------------------------------------------------
-validate::command_exists() {
-    local cmd="$1"
-    if ! command -v "$cmd" &>/dev/null; then
-        log::fatal "Command '$cmd' not found. Please install it first."
-    fi
-}
-
 validate::file_exists() {
-    local file="$1"
-    if [[ ! -f "$file" ]]; then
-        log::error "File not found: $file"
-        return 1
-    fi
+    [[ -f "${1:-}" ]] || { log::error "File not found: ${1:-}"; return 1; }
 }
 
-validate::directory_exists() {
-    local dir="$1"
-    if [[ ! -d "$dir" ]]; then
-        log::error "Directory not found: $dir"
-        return 1
-    fi
+validate::dir_exists() {
+    [[ -d "${1:-}" ]] || { log::error "Directory not found: ${1:-}"; return 1; }
+}
+
+validate::command_exists() {
+    command -v "${1:-}" >/dev/null 2>&1 || {
+        log::error "Command '${1:-}' not found"; return 1;
+    }
 }
 
 validate::docker_running() {
-    if ! docker info &>/dev/null; then
-        log::fatal "Docker daemon is not running. Please start Docker first."
-    fi
+    docker info >/dev/null 2>&1 || {
+        log::error "Docker daemon is not running"; return 1;
+    }
 }
 
 validate::active_env() {
-    local active_env_file="$PROJECT_ROOT/.active-env"
-    if [[ ! -f "$active_env_file" ]]; then
-        log::error "No active environment set. Run 'make env' first."
-        return 1
-    fi
-
-    local env_name
-    read -r env_name < "$active_env_file" || {
-        log::error "Failed to read active environment file"
-        return 1
+    [[ -f "${ACTIVE_ENV_FILE:-}" ]] || {
+        log::error "No active environment. Run 'make env' first"; return 1;
     }
 
-    local env_file="$PROJECT_ROOT/envs/.env.$env_name"
-    if [[ ! -f "$env_file" ]]; then
-        log::error "Environment file not found: $env_file"
-        return 1
-    fi
+    local env_name
+    read -r env_name < "${ACTIVE_ENV_FILE}" 2>/dev/null || {
+        log::error "Failed to read active environment file"; return 1;
+    }
+
+    local env_file="${ENVS_DIR:-}/.env.$env_name"
+    [[ -f "$env_file" ]] || {
+        log::error "Environment file not found: $env_file"; return 1;
+    }
 
     echo "$env_name"
 }
+
+export -f validate::file_exists validate::dir_exists validate::command_exists \
+          validate::docker_running validate::active_env
 
 # -----------------------------------------------------------------------------
 # ENVIRONMENT LOADING
@@ -148,25 +107,25 @@ load::environment() {
     local env_name
     env_name=$(validate::active_env) || return 1
 
-    # Load environment variables from the active environment
-    local env_file="$PROJECT_ROOT/envs/.env.$env_name"
+    local env_file="${ENVS_DIR:-}/.env.$env_name"
 
-    # Check if environment is already loaded
-    if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]] && [[ -n "${COMPOSE_PROFILES:-}" ]]; then
-        log::debug "Environment already loaded"
-        return 0
-    fi
-
-    # Export variables from env file
     if [[ -f "$env_file" ]]; then
-        # Source the environment file while handling errors
-        set -a  # Automatically export all variables
-        if ! source "$env_file" 2>/dev/null; then
-            log::error "Failed to load environment file: $env_file"
-            set +a
-            return 1
-        fi
-        set +a
+        while IFS='=' read -r key value; do
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "${key//[[:space:]]/}" ]] && continue
+
+            key="${key%%[[:space:]]*}"
+            [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+
+            value="${value%%#*}"
+            value="${value%"${value##*[![:space:]]}"}"
+
+            if [[ "$value" =~ ^\"(.*)\"$ ]] || [[ "$value" =~ ^\'(.*)\'$ ]]; then
+                value="${BASH_REMATCH[1]}"
+            fi
+
+            export "$key"="$value"
+        done < "$env_file"
 
         log::debug "Loaded environment: $env_name"
     else
@@ -177,37 +136,29 @@ load::environment() {
     echo "$env_name"
 }
 
+export -f load::environment
+
 # -----------------------------------------------------------------------------
 # DOCKER COMPOSE HELPER
 # -----------------------------------------------------------------------------
-compose::command() {
-    local cmd="$1"
-    shift
-    local compose_file="$COMPOSE_DIR/docker-compose.core.yml"
+compose::cmd() {
+    local env_name
+    env_name=$(load::environment) || return 1
 
+    local compose_file="${COMPOSE_DIR:-}/docker-compose.core.yml"
     validate::file_exists "$compose_file" || return 1
     validate::docker_running || return 1
 
-    # Set Docker Compose project name and profiles from environment
-    local compose_args=(
-        "--project-directory" "$COMPOSE_DIR"
+    local args=(
         "--file" "$compose_file"
+        "--project-directory" "$COMPOSE_DIR"
     )
 
-    # Use project name and profiles from environment if set
-    if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
-        compose_args+=("--project-name" "$COMPOSE_PROJECT_NAME")
-    fi
+    [[ -n "${COMPOSE_PROJECT_NAME:-}" ]] && args+=("--project-name" "$COMPOSE_PROJECT_NAME")
+    [[ -n "${COMPOSE_PROFILES:-}" ]] && args+=("--profile" "$COMPOSE_PROFILES")
 
-    if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
-        compose_args+=("--profile" "$COMPOSE_PROFILES")
-    fi
-
-    log::debug "Executing: docker compose ${compose_args[*]} $cmd $*"
-
-    # Execute docker compose command
-    if ! docker compose "${compose_args[@]}" "$cmd" "$@"; then
-        log::error "Docker Compose command failed: $cmd"
-        return 1
-    fi
+    log::debug "Executing: docker compose ${args[*]} $*"
+    docker compose "${args[@]}" "$@"
 }
+
+export -f compose::cmd
