@@ -19,8 +19,16 @@ docker::up() {
     log::info "Starting containers (stub - implement me)"
 }
 
+docker::stop() {
+    # TODO: Implement graceful stop
+    # - Check for stack already up
+    # - Stop services in reverse order
+    log::info "Stopping containers (stub - implement me)"
+}
+
 docker::down() {
     # TODO: Implement graceful shutdown
+    # - Check for stack already up
     # - Stop services in reverse order
     # - Preserve volumes if needed
     # - Clean up temporary resources
@@ -38,9 +46,11 @@ docker::build() {
 
 docker::clean() {
     # TODO: Implement safe cleanup
-    # - Remove stopped containers
-    # - Clean up unused images
-    # - Prune volumes carefully
+    # - Check for stack already stop
+    # - Remove stopped containers for default
+    # - Remove images for key (if containers already remove)
+    # - Remove volumes for key (if containers already remove)
+    # - Remove networks for key (if containers already remove)
     log::info "Cleaning stack (stub - implement me)"
 }
 
