@@ -1,32 +1,22 @@
 # =============================================================================
-# APPLICATION MAKEFILE
+# APPLICATION MAKEFILE (wrapper)
 # =============================================================================
 
-.PHONY: app-run \
-	app-test \
-	app-lint \
-	app-shell \
-	_help_app
+.PHONY: app-run app-test app-lint app-shell _help_app
+
+APP_SCRIPT := $(ROOT_DIR)/scripts/bin/app.sh
 
 app-run:
-	$(call EXEC,Run application,\
-		@# Run app locally or via docker profile \
-	)
+	@$(APP_SCRIPT) run
 
 app-test:
-	$(call EXEC,Run tests,\
-		@# Test runner \
-	)
+	@$(APP_SCRIPT) test
 
 app-lint:
-	$(call EXEC,Lint,\
-		@# Static analysis \
-	)
+	@$(APP_SCRIPT) lint
 
 app-shell:
-	$(call EXEC,App shell,\
-		@# Shell inside app container or venv \
-	)
+	@$(APP_SCRIPT) shell
 
 _help_app:
 	@printf "$(GREEN)Application$(RESET)\n"

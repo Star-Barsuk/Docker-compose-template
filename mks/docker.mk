@@ -1,63 +1,34 @@
 # =============================================================================
-# DOCKER MAKEFILE
+# DOCKER MAKEFILE (wrapper)
 # =============================================================================
 
-.PHONY: up stop down build \
-	logs shell ps stats df \
-	clean nuke \
-	_help_docker
+.PHONY: up stop down build logs shell clean nuke _help_docker
+
+DOCKER_SCRIPT := $(ROOT_DIR)/scripts/bin/docker.sh
 
 up:
-	$(call EXEC,Start containers,\
-		$(MAKE) _docker_assert_env && docker compose up -d \
-	)
+	@$(DOCKER_SCRIPT) up
 
 stop:
-	$(call EXEC,Stop containers,\
-		docker compose stop \
-	)
+	@$(DOCKER_SCRIPT) stop
 
 down:
-	$(call EXEC,Down containers,\
-		docker compose down \
-	)
+	@$(DOCKER_SCRIPT) down
 
 build:
-	$(call EXEC,Build images,\
-		docker compose build \
-	)
+	@$(DOCKER_SCRIPT) build
 
 clean:
-	$(call EXEC,Clean docker resources,\
-		$(MAKE) _docker_assert_stopped && \
-		@# prune volumes/images/networks selectively \
-	)
+	@$(DOCKER_SCRIPT) clean
 
 nuke:
-	$(call EXEC,NUKE docker,\
-		$(MAKE) _docker_assert_stopped && \
-		@# full prune with explicit confirmation \
-	)
+	@$(DOCKER_SCRIPT) nuke
 
 logs:
-	$(call EXEC,Logs,\
-		docker compose logs -f \
-	)
+	@$(DOCKER_SCRIPT) logs
 
 shell:
-	$(call EXEC,Shell,\
-		@# shell into service with postfix support \
-	)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# INTERNAL STATE CHECKS
-# ─────────────────────────────────────────────────────────────────────────────
-
-_docker_assert_env:
-	@# Ensure env loaded + compose files exist
-
-_docker_assert_stopped:
-	@# If containers running → RED message + list → exit 1
+	@$(DOCKER_SCRIPT) shell
 
 _help_docker:
 	@printf "$(GREEN)Docker$(RESET)\n"

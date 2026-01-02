@@ -1,24 +1,19 @@
 # =============================================================================
-# SECRETS MAKEFILE
+# SECRETS MAKEFILE (wrapper)
 # =============================================================================
 
-.PHONY: secrets-check secrets-list secrets-generate \
-	_help_secrets
+.PHONY: secrets-check secrets-list secrets-generate _help_secrets
+
+SECRETS_SCRIPT := $(ROOT_DIR)/scripts/bin/secrets.sh
 
 secrets-check:
-	$(call EXEC,Check secrets,\
-		@# Validate presence, permissions, entropy
-	)
+	@$(SECRETS_SCRIPT) check
 
 secrets-list:
-	$(call EXEC,List secrets,\
-		@# Enumerate docker/secrets/*
-	)
+	@$(SECRETS_SCRIPT) list
 
 secrets-generate:
-	$(call EXEC,Generate secrets,\
-		@# Safe generation with confirmation
-	)
+	@$(SECRETS_SCRIPT) generate
 
 _help_secrets:
 	@printf "$(GREEN)Secrets$(RESET)\n"
