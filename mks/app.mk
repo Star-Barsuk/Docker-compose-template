@@ -1,26 +1,24 @@
 # =============================================================================
-# APPLICATION MAKEFILE (wrapper)
+# APPLICATION MAKEFILE MODULE
 # =============================================================================
 
 .PHONY: app-run app-test app-lint app-shell _help_app
 
-APP_SCRIPT := $(ROOT_DIR)/scripts/bin/app.sh
-
 app-run:
-	@$(APP_SCRIPT) run
+	@bash $(SCRIPTS_DIR)/app.sh run
 
 app-test:
-	@$(APP_SCRIPT) test
+	@bash $(SCRIPTS_DIR)/app.sh test
 
 app-lint:
-	@$(APP_SCRIPT) lint
+	@bash $(SCRIPTS_DIR)/app.sh lint
 
 app-shell:
-	@$(APP_SCRIPT) shell
+	@bash $(SCRIPTS_DIR)/app.sh shell
 
 _help_app:
-	@printf "$(GREEN)Application$(RESET)\n"
-	@printf "  $(CYAN)app-run$(RESET)     Run application\n"
-	@printf "  $(CYAN)app-test$(RESET)    Run tests\n"
-	@printf "  $(CYAN)app-lint$(RESET)    Lint code\n"
-	@printf "  $(CYAN)app-shell$(RESET)   Shell into app\n"
+	@echo "Application commands:"
+	@echo "  make app-run       Run application"
+	@echo "  make app-test      Run tests"
+	@echo "  make app-lint      Lint code"
+	@echo "  make app-shell     Shell into app"

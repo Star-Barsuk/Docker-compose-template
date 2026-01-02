@@ -1,41 +1,40 @@
 # =============================================================================
-# DOCKER MAKEFILE (wrapper)
+# DOCKER MAKEFILE MODULE
 # =============================================================================
 
-.PHONY: up stop down build logs shell clean nuke _help_docker
-
-DOCKER_SCRIPT := $(ROOT_DIR)/scripts/bin/docker.sh
+.PHONY: up stop down build clean nuke logs shell _help_docker
 
 up:
-	@$(DOCKER_SCRIPT) up
+	@bash $(SCRIPTS_DIR)/docker.sh up
 
 stop:
-	@$(DOCKER_SCRIPT) stop
+	@bash $(SCRIPTS_DIR)/docker.sh stop
 
 down:
-	@$(DOCKER_SCRIPT) down
+	@bash $(SCRIPTS_DIR)/docker.sh down
 
 build:
-	@$(DOCKER_SCRIPT) build
+	@bash $(SCRIPTS_DIR)/docker.sh build
 
 clean:
-	@$(DOCKER_SCRIPT) clean
+	@bash $(SCRIPTS_DIR)/docker.sh clean
 
 nuke:
-	@$(DOCKER_SCRIPT) nuke
+	@bash $(SCRIPTS_DIR)/docker.sh nuke
 
 logs:
-	@$(DOCKER_SCRIPT) logs
+	@bash $(SCRIPTS_DIR)/docker.sh logs $(and $(FOLLOW),FOLLOW=$(FOLLOW)) $(and $(TAIL),TAIL=$(TAIL))
 
 shell:
-	@$(DOCKER_SCRIPT) shell
+	@bash $(SCRIPTS_DIR)/docker.sh shell
 
 _help_docker:
-	@printf "$(GREEN)Docker$(RESET)\n"
-	@printf "  $(CYAN)up$(RESET)                Start stack\n"
-	@printf "  $(CYAN)stop$(RESET)              Stop stack\n"
-	@printf "  $(CYAN)down$(RESET)              Remove stack\n"
-	@printf "  $(CYAN)build$(RESET)             Build images\n"
-	@printf "  $(CYAN)clean$(RESET)             Safe cleanup\n"
-	@printf "  $(CYAN)nuke$(RESET)              Full cleanup (danger)\n"
-	@printf "  $(CYAN)logs$(RESET)              View logs\n"
+	@echo "Docker commands:"
+	@echo "  make up                Start stack"
+	@echo "  make stop              Stop stack"
+	@echo "  make down              Remove stack (REMOVE_VOLUMES=1 for volumes)"
+	@echo "  make build             Build images"
+	@echo "  make clean             Safe cleanup"
+	@echo "  make nuke              Full cleanup (danger!)"
+	@echo "  make logs              View logs (FOLLOW=1 to follow, TAIL=lines)"
+	@echo "  make shell             Enter container shell"
