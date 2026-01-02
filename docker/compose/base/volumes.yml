@@ -3,7 +3,7 @@
 
 volumes:
   # PostgreSQL data volume
-  gdata:
+  pgdata:
     name: ${COMPOSE_VOLUME_PREFIX:-${COMPOSE_PROJECT_NAME}}_pgdata
     driver: local
     driver_opts:
