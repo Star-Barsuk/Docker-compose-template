@@ -1,22 +1,20 @@
 # =============================================================================
-# SECRETS MAKEFILE (wrapper)
+# SECRETS MAKEFILE MODULE
 # =============================================================================
 
 .PHONY: secrets-check secrets-list secrets-generate _help_secrets
 
-SECRETS_SCRIPT := $(ROOT_DIR)/scripts/bin/secrets.sh
-
 secrets-check:
-	@$(SECRETS_SCRIPT) check || true
+	@bash $(SCRIPTS_DIR)/secrets.sh check
 
 secrets-list:
-	@$(SECRETS_SCRIPT) list || true
+	@bash $(SCRIPTS_DIR)/secrets.sh list
 
 secrets-generate:
-	@$(SECRETS_SCRIPT) generate $(and $(FORCE),FORCE=1) || true
+	@bash $(SCRIPTS_DIR)/secrets.sh generate $(and $(FORCE),FORCE=1)
 
 _help_secrets:
-	@printf "$(GREEN)Secrets$(RESET)\n"
-	@printf " $(CYAN)secrets-check$(RESET)     Validate secrets\n"
-	@printf " $(CYAN)secrets-list$(RESET)      List secrets\n"
-	@printf " $(CYAN)secrets-generate$(RESET)  Generate secrets (use FORCE=1 to regenerate)\n"
+	@echo "Secrets commands:"
+	@echo "  make secrets-check     Validate secrets"
+	@echo "  make secrets-list      List secrets"
+	@echo "  make secrets-generate  Generate secrets (use FORCE=1 to regenerate)"
