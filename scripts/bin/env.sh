@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ENVIRONMENT MANAGEMENT (RELATIVE PATHS + OPTIMIZED)
+# ENVIRONMENT MANAGEMENT
 # =============================================================================
 
 set -euo pipefail
@@ -10,88 +10,197 @@ source "$(dirname "$0")/lib.sh"
 # --------------------------
 # PATH CONSTANTS
 # --------------------------
-ENVS_DIR="$(root::path)/envs"
-ACTIVE_ENV_FILE="$(root::path)/.active-env"
-ENV_DIST="$ENVS_DIR/.env.dist"
+readonly ENVS_DIR="$(root::path)/envs"
+readonly ACTIVE_ENV_FILE="$(root::path)/.active-env"
+readonly ENV_DIST="$ENVS_DIR/.env.dist"
+readonly ENV_LOCK_FILE="$(root::path)/.env.lock"
 
-LOG_LEVEL="${LOG_LEVEL:-INFO}"  # default level
+LOG_LEVEL="${LOG_LEVEL:-INFO}"
 CURRENT_ENV=""
-SHOW="${SHOW:-all}"             # all | set | unset
+SHOW="${SHOW:-all}"
+export LC_ALL=C  # Consistent sorting
 
 # -----------------------------------------------------------------------------
-# UTILITIES
+# PATH HELPERS
 # -----------------------------------------------------------------------------
 relpath() {
-    # Получить путь относительно корня проекта
     local path="$1"
     local root
     root="$(root::path)"
-    echo "${path#$root/}"
+    # Remove double slashes and make path relative
+    local rel_path="${path#$root/}"
+    echo "${rel_path}"
 }
 
 # -----------------------------------------------------------------------------
-# GET ACTIVE ENV
+# CORE FUNCTIONS
 # -----------------------------------------------------------------------------
 env::get_active() {
-    [[ -f "$ACTIVE_ENV_FILE" ]] && read -r env_name < "$ACTIVE_ENV_FILE" && echo "$env_name"
+    if [[ -f "$ACTIVE_ENV_FILE" ]]; then
+        local env_name
+        read -r env_name < "$ACTIVE_ENV_FILE"
+        echo "$env_name"
+    fi
 }
 
-# -----------------------------------------------------------------------------
-# GET ENV FILE
-# -----------------------------------------------------------------------------
 env::get_file() {
     local env_name="$1"
     echo "$ENVS_DIR/.env.$env_name"
 }
 
 # -----------------------------------------------------------------------------
-# LOAD ENV
+# FILE VALIDATION
+# -----------------------------------------------------------------------------
+env::validate_env_file() {
+    local env_file="$1"
+    local env_name="$2"
+
+    if [[ ! -f "$env_file" ]]; then
+        # Try to find example file
+        local example_file="${env_file}.example"
+        if [[ -f "$example_file" ]]; then
+            log::error "Environment file '$env_name' not found."
+            log::info "Create it from the example: cp '$(relpath "$example_file")' '$(relpath "$env_file")'"
+        else
+            log::error "Environment file '$(relpath "$env_file")' not found."
+        fi
+        return 1
+    fi
+
+    # Check if file is readable
+    if [[ ! -r "$env_file" ]]; then
+        log::error "Environment file '$(relpath "$env_file")' is not readable."
+        return 1
+    fi
+
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# SAFE ENV LOADING
 # -----------------------------------------------------------------------------
 env::load() {
     local env_name="$1"
+
     if [[ "$CURRENT_ENV" == "$env_name" ]]; then
-        log::debug "Environment '$env_name' already loaded, skipping."
+        log::debug "Environment '$env_name' already loaded."
         return 0
     fi
 
     local env_file
     env_file="$(env::get_file "$env_name")"
-    [[ ! -f "$env_file" ]] && log::warn "Environment file not found: $(relpath "$env_file")" && return 1
 
-    set -o allexport
-    source "$env_file"
-    set +o allexport
+    # Validate file exists and is readable
+    if ! env::validate_env_file "$env_file" "$env_name"; then
+        return 1
+    fi
+
+    # Clear previous environment variables (except system ones)
+    local preserve_vars=(PATH HOME USER LOGNAME SHELL TERM LOG_LEVEL SHOW LC_ALL)
+    for var in $(compgen -v | grep -E '^[A-Z_][A-Z0-9_]*$'); do
+        if [[ ! " ${preserve_vars[*]} " =~ " ${var} " ]]; then
+            unset "$var" 2>/dev/null || true
+        fi
+    done
+
+    # Load variables safely
+    local count=0
+    while IFS='=' read -r key value; do
+        # Skip comments, empty lines, and malformed entries
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${key//[[:space:]]/}" ]] && continue
+
+        # Clean key
+        key="${key%%[[:space:]]*}"
+        key="${key##[[:space:]]*}"
+
+        # Validate key format
+        if [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+            # Clean value (remove quotes and trailing comments)
+            value="${value#\"}"
+            value="${value%\"}"
+            value="${value#\'}"
+            value="${value%\'}"
+            value="${value%%[[:space:]]#*}"
+            value="${value%"${value##*[![:space:]]}"}"  # Trim trailing spaces
+
+            # Export safely
+            export "$key"="$value"
+            ((count++))
+
+            if [[ "$LOG_LEVEL" == "DEBUG" ]]; then
+                log::debug "Loaded: $key"
+            fi
+        else
+            log::warn "Skipping invalid variable name in '$env_name': $key"
+        fi
+    done < <(grep -E '^[A-Z_][A-Z0-9_]*=' "$env_file" || true)
 
     CURRENT_ENV="$env_name"
 
-    local count
-    count=$(grep -E '^[A-Z_][A-Z0-9_]*=' "$env_file" | wc -l | tr -d ' ')
-    log::success "Loaded $count variables from '$env_name'"
+    if [[ $count -eq 0 ]]; then
+        log::warn "No valid variables loaded from '$env_name'"
+    else
+        log::success "Loaded $count variables from '$env_name'"
+    fi
+    return 0
 }
 
 # -----------------------------------------------------------------------------
 # LIST ENVIRONMENTS
 # -----------------------------------------------------------------------------
 env::list() {
-    log::header "Available environments"
+    log::header "Available Environments"
 
     local envs=()
     while IFS= read -r f; do
-        envs+=("$(basename "$f" | sed 's|.env.||')")
-    done < <(find "$ENVS_DIR" -maxdepth 1 -type f -name ".env.*" ! -name "*.example" ! -name ".env.dist")
+        local env_name
+        env_name="$(basename "$f" | sed 's|^\.env\.||')"
+        envs+=("$env_name")
+    done < <(find "$ENVS_DIR" -maxdepth 1 -type f -name ".env.*" ! -name "*.example" ! -name ".env.dist" 2>/dev/null | sort)
 
-    [[ ${#envs[@]} -eq 0 ]] && log::info "No environments found" && return
+    if [[ ${#envs[@]} -eq 0 ]]; then
+        log::info "No environments found."
+        echo ""
+        echo "To create an environment:"
+        echo "  1. Copy an example file: cp envs/.env.dev.example envs/.env.dev"
+        echo "  2. Edit the new file with your configuration"
+        echo "  3. Run 'make env' to select it"
+        return 0
+    fi
 
     local active
-    active="$(env::get_active || true)"
+    active="$(env::get_active || echo "")"
+
+    printf "%-20s %-12s %s\n" "ENVIRONMENT" "STATUS" "LAST MODIFIED"
+    printf "%s\n" "$(printf '%.0s-' {1..60})"
 
     for env in "${envs[@]}"; do
+        local env_file status color modified
+        env_file="$(env::get_file "$env")"
+
+        # Status
         if [[ "$env" == "$active" ]]; then
-            printf "%-30s = ${COLOR_GREEN}%-20s${COLOR_RESET}\n" "$env" "active"
+            status="ACTIVE"
+            color="$COLOR_GREEN"
         else
-            printf "%-30s = ${COLOR_RED}%-20s${COLOR_RESET}\n" "$env" "inactive"
+            status="INACTIVE"
+            color="$COLOR_YELLOW"
         fi
+
+        # Last modified
+        if [[ -f "$env_file" ]] && command -v stat >/dev/null 2>&1; then
+            modified="$(stat -c "%y" "$env_file" 2>/dev/null | cut -d' ' -f1)"
+        else
+            modified="unknown"
+        fi
+
+        printf "${color}%-20s${COLOR_RESET} %-12s %s\n" \
+            "$env" "$status" "$modified"
     done
+
+    echo ""
+    echo "Active environment: ${active:-none}"
 }
 
 # -----------------------------------------------------------------------------
@@ -100,10 +209,18 @@ env::list() {
 env::select() {
     local envs=()
     while IFS= read -r f; do
-        envs+=("$(basename "$f" | sed 's|.env.||')")
-    done < <(find "$ENVS_DIR" -maxdepth 1 -type f -name ".env.*" ! -name "*.example" ! -name ".env.dist")
+        envs+=("$(basename "$f" | sed 's|^\.env\.||')")
+    done < <(find "$ENVS_DIR" -maxdepth 1 -type f -name ".env.*" ! -name "*.example" ! -name ".env.dist" 2>/dev/null | sort)
 
-    [[ ${#envs[@]} -eq 0 ]] && log::fatal "No environments found"
+    if [[ ${#envs[@]} -eq 0 ]]; then
+        log::error "No environments found."
+        echo ""
+        echo "To create your first environment:"
+        echo "  cp envs/.env.dev.example envs/.env.dev"
+        echo "  # Edit envs/.env.dev with your settings"
+        echo "  # Then run 'make env' again"
+        return 1
+    fi
 
     echo "Select environment:"
     local i=1
@@ -111,114 +228,366 @@ env::select() {
         printf "  %2d) %s\n" "$i" "$env"
         ((i++))
     done
+    echo "  q) Cancel"
 
-    read -rp "#? " choice
-    local selected_env="${envs[0]}"
-    [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#envs[@]} ]] && selected_env="${envs[$((choice-1))]}"
+    while true; do
+        read -rp "#? " choice
 
+        case "$choice" in
+            [qQ])
+                log::info "Selection cancelled."
+                return 0
+                ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]] && \
+                   [[ "$choice" -ge 1 ]] && \
+                   [[ "$choice" -le ${#envs[@]} ]]; then
+                    break
+                else
+                    echo "Invalid choice. Please enter a number between 1 and ${#envs[@]}, or 'q' to cancel."
+                fi
+                ;;
+        esac
+    done
+
+    local selected_env="${envs[$((choice-1))]}"
     local active
-    active="$(env::get_active || true)"
+    active="$(env::get_active || echo "")"
 
     if [[ "$active" == "$selected_env" ]]; then
         log::info "Environment '$selected_env' is already active."
-    else
-        echo "$selected_env" > "$ACTIVE_ENV_FILE"
-        log::success "Active environment set to '$selected_env'"
-        env::load "$selected_env" || true
+        return 0
     fi
+
+    # Validate the selected environment file exists
+    local env_file
+    env_file="$(env::get_file "$selected_env")"
+    if ! env::validate_env_file "$env_file" "$selected_env"; then
+        return 1
+    fi
+
+    # Save the active environment
+    echo "$selected_env" > "$ACTIVE_ENV_FILE"
+    log::success "Active environment set to '$selected_env'"
+
+    # Load the environment
+    env::load "$selected_env" || {
+        log::error "Failed to load environment '$selected_env'"
+        return 1
+    }
 }
 
 # -----------------------------------------------------------------------------
-# SHOW ENV STATUS
+# SHOW ENV STATUS (Fixed categorization)
 # -----------------------------------------------------------------------------
 env::status() {
     local env_name
     env_name="$(env::get_active)"
-    [[ -z "$env_name" ]] && log::info "No active environment" && return 0
-
-    env::load "$env_name" || return
-
-    log::header "Environment status: $env_name (SHOW=${SHOW})"
-
-    mapfile -t dist_vars < <(grep -E '^[A-Z_][A-Z0-9_]*=' "$ENV_DIST" | cut -d= -f1 | sort)
-
-    for var in "${dist_vars[@]}"; do
-        local val="${!var:-<unset>}"
-        case "$SHOW" in
-            set)   [[ "$val" == "<unset>" ]] && continue ;;
-            unset) [[ "$val" != "<unset>" ]] && continue ;;
-        esac
-        if [[ "$val" == "<unset>" ]]; then
-            printf "%-30s = ${COLOR_RED}%-20s${COLOR_RESET}\n" "$var" "$val"
-        else
-            printf "%-30s = ${COLOR_GREEN}%-20s${COLOR_RESET}\n" "$var" "$val"
-        fi
-    done
-}
-
-# -----------------------------------------------------------------------------
-# VALIDATE ENV
-# -----------------------------------------------------------------------------
-env::validate() {
-    local env_name
-    env_name="$(env::get_active || true)"
 
     if [[ -z "$env_name" ]]; then
-        log::info "No active environment set, skipping validation."
+        log::info "No active environment."
+        echo "Use 'make env' to select an environment."
         return 0
     fi
 
     local env_file
     env_file="$(env::get_file "$env_name")"
 
-    if [[ ! -f "$env_file" ]]; then
-        log::warn "Environment file not found: $(relpath "$env_file")"
-        return 0
+    if ! env::validate_env_file "$env_file" "$env_name"; then
+        return 1
     fi
 
     # Load environment
-    env::load "$env_name" || return
+    env::load "$env_name" || return 1
 
-    [[ ! -f "$ENV_DIST" ]] && log::warn "Dist file not found: $(relpath "$ENV_DIST")"
+    log::header "Environment Status: $env_name"
+    echo "File: $(relpath "$env_file")"
+    echo ""
 
-    log::header "Validating environment: $env_name"
+    # Define categories with exclusive patterns to avoid duplicates
+    declare -A categories=(
+        ["DOCKER"]="^COMPOSE_"
+        ["APPLICATION"]="^APP_"
+        ["DATABASE"]="^DB_"
+        ["PGADMIN"]="^PGADMIN_"
+        ["NETWORK"]="^NETWORK_"
+        ["HEALTHCHECK"]="^HEALTHCHECK"
+        ["POSTGRES"]="^POSTGRES_"
+        ["VOLUME"]="^VOLUME_"
+        ["SECURITY"]="_PASSWORD$|_SECRET$|_KEY$|_TOKEN$|SECRET_|PASSWORD_"
+    )
 
-    mapfile -t env_vars  < <(grep -E '^[A-Z_][A-Z0-9_]*=' "$env_file" | cut -d= -f1 | sort)
-    mapfile -t dist_vars < <(grep -E '^[A-Z_][A-Z0-9_]*=' "$ENV_DIST" | cut -d= -f1 | sort)
+    # Track which variables we've displayed
+    local displayed_vars=()
+    local has_content=false
 
-    local unknown=($(comm -23 <(printf "%s\n" "${env_vars[@]}") <(printf "%s\n" "${dist_vars[@]}")))
-    local missing=($(comm -13 <(printf "%s\n" "${env_vars[@]}") <(printf "%s\n" "${dist_vars[@]}")))
+    # Process each category
+    for category in "${!categories[@]}"; do
+        local pattern="${categories[$category]}"
+        local vars_in_category=()
 
-    log::success "Environment validation completed"
+        # Extract variables for this category
+        while IFS= read -r line; do
+            local var="${line%%=*}"
 
-    # Unknown → warn
-    if [[ ${#unknown[@]} -gt 0 ]]; then
-        log::warn "Unknown variables in environment (ignored in processing):"
-        for v in "${unknown[@]}"; do printf "  %s\n" "$v"; done
+            # Skip if already displayed
+            if [[ " ${displayed_vars[*]} " =~ " $var " ]]; then
+                continue
+            fi
+
+            # Check if variable matches category pattern
+            if [[ "$var" =~ $pattern ]]; then
+                vars_in_category+=("$var")
+                displayed_vars+=("$var")
+            fi
+        done < <(grep -E '^[A-Z_][A-Z0-9_]*=' "$env_file" 2>/dev/null || true)
+
+        # Sort and display
+        if [[ ${#vars_in_category[@]} -gt 0 ]]; then
+            has_content=true
+            echo "=== $category ==="
+
+            IFS=$'\n' vars_in_category=($(sort <<<"${vars_in_category[*]}"))
+            unset IFS
+
+            for var in "${vars_in_category[@]}"; do
+                local value="${!var:-<unset>}"
+
+                # Mask sensitive values
+                if [[ "$category" == "SECURITY" ]] || \
+                   [[ "$var" =~ _PASSWORD$|_SECRET$|_KEY$|_TOKEN$ ]] || \
+                   [[ "$var" == "PGADMIN_PASSWORD" ]]; then
+                    value="********"
+                elif [[ ${#value} -gt 50 ]]; then
+                    value="${value:0:47}..."
+                fi
+
+                if [[ "$value" == "<unset>" ]]; then
+                    printf "  %-30s = ${COLOR_RED}%s${COLOR_RESET}\n" "$var" "$value"
+                else
+                    printf "  %-30s = ${COLOR_GREEN}%s${COLOR_RESET}\n" "$var" "$value"
+                fi
+            done
+            echo ""
+        fi
+    done
+
+    # Show remaining variables in "OTHER" category
+    local other_vars=()
+    while IFS= read -r line; do
+        local var="${line%%=*}"
+        if [[ ! " ${displayed_vars[*]} " =~ " $var " ]]; then
+            other_vars+=("$var")
+        fi
+    done < <(grep -E '^[A-Z_][A-Z0-9_]*=' "$env_file" 2>/dev/null || true)
+
+    if [[ ${#other_vars[@]} -gt 0 ]]; then
+        has_content=true
+        echo "=== OTHER ==="
+
+        IFS=$'\n' other_vars=($(sort <<<"${other_vars[*]}"))
+        unset IFS
+
+        for var in "${other_vars[@]}"; do
+            local value="${!var:-<unset>}"
+            printf "  %-30s = ${COLOR_CYAN}%s${COLOR_RESET}\n" "$var" "$value"
+        done
+        echo ""
     fi
 
-    # Missing → debug
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        log::debug "Missing variables (defined in dist, absent in env):"
-        for v in "${missing[@]}"; do printf "  %s\n" "$v"; done
+    if [[ "$has_content" == "false" ]]; then
+        log::warn "No environment variables found in file."
     fi
 
-    # Show full environment
-    local old_show="$SHOW"
-    SHOW=all env::status
-    SHOW="$old_show"
+    echo "Total variables loaded: ${#displayed_vars[@]}"
 }
 
 # -----------------------------------------------------------------------------
-# MAIN
+# VALIDATE ENVIRONMENT
+# -----------------------------------------------------------------------------
+env::validate() {
+    local env_name
+    env_name="$(env::get_active || echo "")"
+
+    if [[ -z "$env_name" ]]; then
+        log::info "No active environment set."
+        echo "Use 'make env' to select an environment first."
+        return 0
+    fi
+
+    local env_file
+    env_file="$(env::get_file "$env_name")"
+
+    if ! env::validate_env_file "$env_file" "$env_name"; then
+        return 1
+    fi
+
+    # Load environment
+    env::load "$env_name" || return 1
+
+    log::header "Validating Environment: $env_name"
+    echo "File: $(relpath "$env_file")"
+    echo ""
+
+    local env_vars=() dist_vars=()
+    local total_vars=0 unknown_vars=0 missing_vars=0 placeholder_vars=0
+
+    # Extract variables from environment file
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[A-Z_][A-Z0-9_]*= ]]; then
+            local var="${line%%=*}"
+            local value="${line#*=}"
+            env_vars+=("$var")
+
+            # Check for placeholder values
+            if [[ "$value" =~ changeme|yourdomain|example\.com|TODO|FIXME|YOUR_ ]]; then
+                ((placeholder_vars++))
+            fi
+        fi
+    done < "$env_file"
+
+    total_vars=${#env_vars[@]}
+
+    # Check if .env.dist exists
+    if [[ ! -f "$ENV_DIST" ]]; then
+        log::warn "Template file '.env.dist' not found."
+        echo "Cannot validate against template. Variables will not be checked."
+    else
+        # Extract variables from template
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[A-Z_][A-Z0-9_]*= ]] && dist_vars+=("${line%%=*}")
+        done < "$ENV_DIST"
+
+        # Find unknown variables (in env but not in dist)
+        for var in "${env_vars[@]}"; do
+            if [[ ! " ${dist_vars[*]} " =~ " ${var} " ]]; then
+                ((unknown_vars++))
+            fi
+        done
+
+        # Find missing variables (in dist but not in env)
+        for var in "${dist_vars[@]}"; do
+            if [[ ! " ${env_vars[*]} " =~ " ${var} " ]]; then
+                ((missing_vars++))
+            fi
+        done
+    fi
+
+    # Display results
+    echo "=== VALIDATION RESULTS ==="
+    printf "Total variables:        %3d\n" "$total_vars"
+
+    if [[ -f "$ENV_DIST" ]]; then
+        printf "Variables in template:  %3d\n" "${#dist_vars[@]}"
+        printf "Unknown variables:      %3d\n" "$unknown_vars"
+        printf "Missing variables:      %3d\n" "$missing_vars"
+    fi
+
+    printf "Placeholder values:     %3d\n" "$placeholder_vars"
+    echo ""
+
+    # Detailed warnings
+    if [[ $placeholder_vars -gt 0 ]]; then
+        log::warn "Found $placeholder_vars variable(s) with placeholder values:"
+        grep -E 'changeme|yourdomain|example\.com|TODO|FIXME|YOUR_' "$env_file" 2>/dev/null | \
+        while IFS= read -r line; do
+            echo "  - ${line%%=*}"
+        done
+        echo ""
+    fi
+
+    if [[ -f "$ENV_DIST" ]] && [[ $unknown_vars -gt 0 ]]; then
+        log::info "Unknown variables (${unknown_vars} found - not in template):"
+        for var in "${env_vars[@]}"; do
+            if [[ ! " ${dist_vars[*]} " =~ " ${var} " ]]; then
+                echo "  - $var"
+            fi
+        done | head -10
+        [[ $unknown_vars -gt 10 ]] && echo "  ... and $((unknown_vars - 10)) more"
+        echo ""
+    fi
+
+    if [[ -f "$ENV_DIST" ]] && [[ $missing_vars -gt 0 ]]; then
+        log::info "Missing variables (${missing_vars} found - in template but not set):"
+        for var in "${dist_vars[@]}"; do
+            if [[ ! " ${env_vars[*]} " =~ " ${var} " ]]; then
+                echo "  - $var"
+            fi
+        done | head -10
+        [[ $missing_vars -gt 10 ]] && echo "  ... and $((missing_vars - 10)) more"
+        echo ""
+    fi
+
+    # Overall status
+    local has_issues=false
+
+    if [[ $placeholder_vars -gt 0 ]]; then
+        log::warn "⚠️  Found placeholder values that should be replaced."
+        has_issues=true
+    fi
+
+    if [[ -f "$ENV_DIST" ]] && [[ $unknown_vars -gt 0 ]]; then
+        log::info "ℹ️  Some variables are not in the template (may be environment-specific)."
+        has_issues=true
+    fi
+
+    if [[ -f "$ENV_DIST" ]] && [[ $missing_vars -gt 0 ]]; then
+        log::info "ℹ️  Some template variables are not set (may be optional)."
+        has_issues=true
+    fi
+
+    if [[ "$has_issues" == "false" ]]; then
+        if [[ -f "$ENV_DIST" ]]; then
+            log::success "✅ All variables are valid and match the template."
+        else
+            log::success "✅ Environment loaded successfully."
+        fi
+    else
+        log::info "✓ Validation completed. Review warnings above."
+    fi
+
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# MAIN DISPATCHER
 # -----------------------------------------------------------------------------
 main() {
-    case "${1:-}" in
-        list)     env::list ;;
-        select)   env::select ;;
-        status)   env::status ;;
-        validate) env::validate ;;
-        *) log::info "Usage: $0 {list|select|status|validate}" ;;
+    local command="${1:-help}"
+
+    case "$command" in
+        list)
+            env::list
+            ;;
+        select)
+            env::select
+            ;;
+        status)
+            SHOW="${SHOW:-all}" env::status
+            ;;
+        validate)
+            env::validate
+            ;;
+        help|--help|-h)
+            echo "Environment Management Tool"
+            echo "Usage: $0 {list|select|status|validate|help}"
+            echo ""
+            echo "Commands:"
+            echo "  list     - List available environments"
+            echo "  select   - Interactively select environment"
+            echo "  status   - Show current environment status"
+            echo "  validate - Validate current environment"
+            echo "  help     - Show this help"
+            echo ""
+            echo "Environment variables:"
+            echo "  LOG_LEVEL - Set log level (DEBUG, INFO, WARN, ERROR)"
+            echo "  SHOW      - Control status output (all, set, unset)"
+            ;;
+        *)
+            log::error "Unknown command: $command"
+            echo "Use '$0 help' for usage information"
+            return 1
+            ;;
     esac
 }
 

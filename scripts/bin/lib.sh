@@ -36,46 +36,6 @@ log::debug()   { [[ "${DEBUG:-0}" == "1" ]] && printf "${COLOR_GRAY}[DEBUG]${COL
 log::fatal()   { log::error "$1"; exit 1; }
 
 # -----------------------------------------------------------------------------
-# ASSERTION FUNCTIONS
-# -----------------------------------------------------------------------------
-assert::file_exists()    { [[ ! -f "$1" ]] && log::fatal "File not found: $1"; }
-assert::dir_exists()     { [[ ! -d "$1" ]] && log::fatal "Directory not found: $1"; }
-assert::command_exists() { ! command -v "$1" &>/dev/null && log::fatal "Command not found: $1"; }
-
-# -----------------------------------------------------------------------------
-# UTILITY FUNCTIONS
-# -----------------------------------------------------------------------------
-util::confirm() {
-    local message="${1:-Are you sure?}"
-    local default="${2:-n}"
-    local reply
-
-    if [[ "$default" == "y" ]]; then
-        read -rp "$message [Y/n]: " reply
-        [[ $reply =~ ^[Nn]$ ]] && return 1
-    else
-        read -rp "$message [y/N]: " reply
-        [[ ! $reply =~ ^[Yy]$ ]] && return 1
-    fi
-    return 0
-}
-
-util::spinner() {
-    local pid=$1 message="${2:-Processing...}"
-    local delay=0.1 spinstr='|/-\'
-
-    echo -n "$message "
-    while ps -p $pid > /dev/null 2>&1; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-}
-
-# -----------------------------------------------------------------------------
 # PATH HELPERS
 # -----------------------------------------------------------------------------
 bin::path()  { echo "$BIN_DIR"; }
