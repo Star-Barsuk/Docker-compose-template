@@ -42,6 +42,8 @@ services:
       file: ./services/app.yml
       service: app
     profiles: ["prod-standard"]
+    ports:
+    - "${APP_PORT_PROD:-8001}:8001"
     <<: *security-prod
     deploy:
       resources:
