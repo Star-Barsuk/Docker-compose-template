@@ -1,23 +1,20 @@
 # =============================================================================
-# ENV MAKEFILE (wrapper)
+# ENVIRONMENT MAKEFILE MODULE
 # =============================================================================
-
-ENV_SCRIPT := $(ROOT_DIR)/scripts/bin/env.sh
-LOG_LEVEL ?= INFO
 
 .PHONY: env env-list env-status env-validate _help_env
 
 env:
-	@LOG_LEVEL="$(LOG_LEVEL)" $(ENV_SCRIPT) select || true
+	@bash $(SCRIPTS_DIR)/env.sh select
 
 env-list:
-	@LOG_LEVEL="$(LOG_LEVEL)" $(ENV_SCRIPT) list || true
+	@bash $(SCRIPTS_DIR)/env.sh list
 
 env-status:
-	@LOG_LEVEL="$(LOG_LEVEL)" $(ENV_SCRIPT) status || true
+	@bash $(SCRIPTS_DIR)/env.sh status
 
 env-validate:
-	@LOG_LEVEL="$(LOG_LEVEL)" $(ENV_SCRIPT) validate || true
+	@bash $(SCRIPTS_DIR)/env.sh validate
 
 _help_env:
 	@echo "Environment commands:"
@@ -25,4 +22,3 @@ _help_env:
 	@echo "  make env-list      List available environments"
 	@echo "  make env-status    Show active environment variables"
 	@echo "  make env-validate  Validate active environment"
-	@echo "Optional: LOG_LEVEL can be set (default INFO)"
