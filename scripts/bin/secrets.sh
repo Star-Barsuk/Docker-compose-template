@@ -324,6 +324,10 @@ secrets::list() {
 # SECRETS GENERATION
 # -----------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+# SECRETS GENERATION
+# -----------------------------------------------------------------------------
+
 secrets::generate() {
     log::header "Generating Secrets"
 
@@ -332,7 +336,7 @@ secrets::generate() {
         return 1
     }
 
-    # Define required secrets (excluding .example files)
+    # Define required secrets
     local required_secrets=(
         "db_password.txt"
         "pgadmin_password.txt"
@@ -342,7 +346,7 @@ secrets::generate() {
     local skipped=0
     local errors=0
 
-    # Load environment to check if we need specific secret lengths
+    # Load environment
     local env_name
     env_name="$(load::environment 2>/dev/null || echo "default")"
 
@@ -354,7 +358,7 @@ secrets::generate() {
         local full_path="$SECRETS_DIR/$secret_file"
 
         # Check if secret already exists
-        if [[ -f "$full_path" ]]; then
+        if [[ -f "$full_path" ]] && [[ -s "$full_path" ]]; then
             if [[ -z "${FORCE:-}" ]]; then
                 log::info "Skipping existing secret: $secret_file"
                 ((skipped++))
@@ -362,119 +366,115 @@ secrets::generate() {
             else
                 log::warn "Regenerating existing secret: $secret_file"
                 # Backup old secret
-                if [[ -f "$full_path" ]] && [[ -s "$full_path" ]]; then
-                    local backup_file="${full_path}.backup.$(date +%Y%m%d_%H%M%S 2>/dev/null || echo "backup")"
-                    if cp "$full_path" "$backup_file" 2>/dev/null; then
-                        chmod 600 "$backup_file" 2>/dev/null
-                        log::debug "Backup created: $(basename "$backup_file")"
-                    fi
+                local timestamp
+                timestamp=$(date +%Y%m%d_%H%M%S 2>/dev/null || echo "backup")
+                local backup_file="${full_path}.backup.${timestamp}"
+                if cp "$full_path" "$backup_file" 2>/dev/null; then
+                    chmod 600 "$backup_file" 2>/dev/null
+                    log::debug "Backup created: $(basename "$backup_file")"
+                else
+                    log::warn "Failed to create backup for: $secret_file"
                 fi
             fi
         fi
 
         log::info "Generating secret: $secret_file"
 
-        # Generate random secret (32-48 characters, base64 encoded)
-        local secret_length=48
-
-        # Try different methods to generate secure random data
+        # Generate secret using multiple fallback methods
         local secret=""
 
-        # Method 1: openssl (preferred)
+        # Method 1: Try openssl first (most reliable)
         if command -v openssl >/dev/null 2>&1; then
-            secret=$(openssl rand -base64 $secret_length 2>/dev/null | tr -d '\n' | head -c $secret_length)
+            secret=$(openssl rand -hex 24 2>/dev/null)
+            if [[ -n "$secret" ]]; then
+                log::debug "Generated using openssl"
+            fi
         fi
 
-        # Method 2: /dev/urandom with head
-        if [[ -z "$secret" ]] && [[ -r "/dev/urandom" ]]; then
-            secret=$(head -c $((secret_length * 3 / 4)) /dev/urandom 2>/dev/null | base64 2>/dev/null | tr -d '\n' | head -c $secret_length)
+        # Method 2: Try /dev/urandom with proper xxd usage
+        if [[ -z "$secret" ]] && [[ -r "/dev/urandom" ]] && command -v xxd >/dev/null 2>&1; then
+            # Исправлено: правильное использование xxd
+            secret=$(head -c 24 /dev/urandom 2>/dev/null | xxd -ps -c 24 2>/dev/null | tr -d '\n')
+            if [[ -n "$secret" ]]; then
+                log::debug "Generated using /dev/urandom"
+            fi
         fi
 
-        # Method 3: Fallback to pseudo-random
+        # Method 3: Try /dev/urandom with od
+        if [[ -z "$secret" ]] && [[ -r "/dev/urandom" ]] && command -v od >/dev/null 2>&1; then
+            secret=$(head -c 24 /dev/urandom 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')
+            if [[ -n "$secret" ]]; then
+                log::debug "Generated using od"
+            fi
+        fi
+
+        # Method 4: Final fallback - use date and random
         if [[ -z "$secret" ]]; then
-            secret=$(date +%s%N 2>/dev/null | sha256sum 2>/dev/null | base64 2>/dev/null | head -c $secret_length)
-        fi
-
-        # Final fallback
-        if [[ -z "$secret" ]] || [[ ${#secret} -lt 32 ]]; then
-            # Simple fallback
-            secret=$(echo "$RANDOM$(date)$RANDOM" | md5sum 2>/dev/null | head -c $secret_length || \
-                     echo "ChangeMe$(date +%s)" | head -c $secret_length)
+            # Base64 encoding as fallback
+            secret=$(echo "$(date +%s%N)$$$RANDOM" | base64 2>/dev/null | tr -d '\n=+/' | head -c 48)
+            if [[ -z "$secret" ]]; then
+                # Ultimate fallback
+                secret="emergency_secret_$(date +%s)_${RANDOM}"
+            fi
             log::warn "Using fallback method for: $secret_file"
         fi
 
-        # Save secret with secure permissions
-        if ! echo -n "$secret" > "$full_path" 2>/dev/null; then
-            log::error "Failed to write secret file: $secret_file (permission denied?)"
+        # Validate secret is not empty
+        if [[ -z "$secret" ]]; then
+            log::error "Failed to generate secret for: $secret_file"
             ((errors++))
             continue
         fi
 
-        # Set secure permissions
-        if ! chmod 600 "$full_path" 2>/dev/null; then
-            log::warn "Could not set permissions on: $secret_file"
-        fi
+        # Save the secret
+        if printf "%s" "$secret" > "$full_path" 2>/dev/null; then
+            # Set secure permissions
+            chmod 600 "$full_path" 2>/dev/null || chmod 400 "$full_path" 2>/dev/null
 
-        # Verify the file was created
-        if [[ -f "$full_path" ]]; then
-            local file_size
-            file_size=$(wc -c < "$full_path" 2>/dev/null | tr -d ' ' || echo "0")
-            if [[ $file_size -ge 32 ]]; then
-                log::success "Generated: $secret_file (${file_size} bytes)"
-                ((generated++))
+            # Verify the file was created and has content
+            if [[ -f "$full_path" ]] && [[ -s "$full_path" ]]; then
+                local file_size
+                file_size=$(wc -c < "$full_path" 2>/dev/null | tr -d ' ' || echo "0")
+                if [[ $file_size -gt 0 ]]; then
+                    log::success "Generated: $secret_file (${file_size} bytes)"
+                    ((generated++))
+                else
+                    log::error "Generated empty secret: $secret_file"
+                    rm -f "$full_path" 2>/dev/null
+                    ((errors++))
+                fi
             else
-                log::error "Generated secret is too short: $secret_file"
-                rm -f "$full_path" 2>/dev/null
+                log::error "Failed to create secret file: $secret_file"
                 ((errors++))
             fi
         else
-            log::error "Failed to create secret file: $secret_file"
+            log::error "Failed to write secret file: $secret_file"
             ((errors++))
         fi
     done
 
     echo ""
+    log::info "Summary:"
+    log::info "  Generated: $generated"
+    log::info "  Skipped: $skipped"
+    log::info "  Errors: $errors"
 
-    # Summary
-    if [[ $generated -gt 0 ]]; then
-        log::success "Successfully generated $generated secret(s)"
-    fi
-
-    if [[ $skipped -gt 0 ]]; then
-        log::info "Skipped $skipped existing secret(s)"
-    fi
-
+    # Return appropriate exit code
     if [[ $errors -gt 0 ]]; then
         log::error "Failed to generate $errors secret(s)"
         return 1
-    fi
-
-    if [[ $generated -eq 0 ]] && [[ $skipped -gt 0 ]]; then
+    elif [[ $generated -eq 0 ]] && [[ $skipped -gt 0 ]]; then
         log::info "All secrets already exist. Use FORCE=1 to regenerate."
-    elif [[ $generated -eq 0 ]] && [[ $errors -eq 0 ]]; then
-        log::warn "No secrets were generated"
-        echo "Required secrets:"
-        for secret in "${required_secrets[@]}"; do
-            echo "  - $secret"
-        done
+        return 0
+    else
+        log::success "Secrets generated successfully"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Run 'make secrets-check' to validate"
+        echo "  2. Run 'make secrets-list' to view"
+        echo "  3. Restart services if needed"
+        return 0
     fi
-
-    # Show usage instructions
-    echo ""
-    log::info "NEXT STEPS:"
-    echo "  1. Verify secrets: make secrets-check"
-    echo "  2. List secrets: make secrets-list"
-    echo ""
-
-    # Warn about security
-    if [[ $generated -gt 0 ]]; then
-        log::warn "IMPORTANT: New secrets have been generated!"
-        echo "  • Update any services using these secrets"
-        echo "  • Restart services if they were running"
-        echo "  • Keep backups of old secrets if needed"
-    fi
-
-    return 0
 }
 
 # -----------------------------------------------------------------------------
