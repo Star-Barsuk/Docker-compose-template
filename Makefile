@@ -3,14 +3,20 @@
 # =============================================================================
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-MKS_DIR := $(ROOT_DIR)/mks
+export ROOT_DIR
 
-include $(MKS_DIR)/env.mk
-include $(MKS_DIR)/secrets.mk
-include $(MKS_DIR)/docker.mk
-include $(MKS_DIR)/app.mk
+# Scripts directory
+SCRIPTS_DIR := $(ROOT_DIR)/scripts/bin
+export SCRIPTS_DIR
+
+# Include all modules
+include $(ROOT_DIR)/mks/env.mk
+include $(ROOT_DIR)/mks/secrets.mk
+include $(ROOT_DIR)/mks/docker.mk
+include $(ROOT_DIR)/mks/app.mk
 
 .DEFAULT_GOAL := help
+
 .PHONY: help
 
 help:
