@@ -13,7 +13,6 @@ source "$(dirname "$0")/lib.sh"
 readonly ENVS_DIR="$(root::path)/envs"
 readonly ACTIVE_ENV_FILE="$(root::path)/.active-env"
 readonly ENV_DIST="$ENVS_DIR/.env.dist"
-readonly ENV_LOCK_FILE="$(root::path)/.env.lock"
 
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 CURRENT_ENV=""
@@ -21,15 +20,70 @@ SHOW="${SHOW:-all}"
 export LC_ALL=C  # Consistent sorting
 
 # -----------------------------------------------------------------------------
-# PATH HELPERS
+# UTILITY FUNCTIONS
 # -----------------------------------------------------------------------------
 relpath() {
     local path="$1"
     local root
     root="$(root::path)"
-    # Remove double slashes and make path relative
-    local rel_path="${path#$root/}"
-    echo "${rel_path}"
+    echo "${path#$root/}"
+}
+
+simple_file_timestamp() {
+    local file="$1"
+
+    if [[ ! -f "$file" ]]; then
+        echo "unknown"
+        return 1
+    fi
+
+    # Try ls -l output (works everywhere)
+    local timestamp
+    timestamp="$(ls -l "$file" 2>/dev/null | head -1)"
+
+    if [[ -n "$timestamp" ]]; then
+        # Parse ls -l output format: -rw-r--r-- 1 user group size month day time year filename
+        # Example: -rw-r--r-- 1 user group 123 Jan 3 12:30 file.txt
+        local month day time_or_year
+
+        # Get the 6th, 7th, and 8th fields from ls -l
+        month="$(echo "$timestamp" | awk '{print $6}')"
+        day="$(echo "$timestamp" | awk '{print $7}')"
+        time_or_year="$(echo "$timestamp" | awk '{print $8}')"
+
+        # Convert month name to number
+        local month_num
+        case "$month" in
+            Jan) month_num="01" ;;
+            Feb) month_num="02" ;;
+            Mar) month_num="03" ;;
+            Apr) month_num="04" ;;
+            May) month_num="05" ;;
+            Jun) month_num="06" ;;
+            Jul) month_num="07" ;;
+            Aug) month_num="08" ;;
+            Sep) month_num="09" ;;
+            Oct) month_num="10" ;;
+            Nov) month_num="11" ;;
+            Dec) month_num="12" ;;
+            *) month_num="00" ;;
+        esac
+
+        # Check if time_or_year is a year (4 digits) or time (HH:MM)
+        if [[ "$time_or_year" =~ ^[0-9]{4}$ ]]; then
+            # It's a year (file older than 6 months)
+            echo "${time_or_year}-${month_num}-${day} 00:00:00"
+        elif [[ "$time_or_year" =~ ^[0-9]{1,2}:[0-9]{2}$ ]]; then
+            # It's a time (file from current year)
+            local current_year
+            current_year="$(date +%Y 2>/dev/null || echo "2026")"
+            echo "${current_year}-${month_num}-${day} ${time_or_year}:00"
+        else
+            echo "unknown"
+        fi
+    else
+        echo "unknown"
+    fi
 }
 
 # -----------------------------------------------------------------------------
@@ -49,34 +103,6 @@ env::get_file() {
 }
 
 # -----------------------------------------------------------------------------
-# FILE VALIDATION
-# -----------------------------------------------------------------------------
-env::validate_env_file() {
-    local env_file="$1"
-    local env_name="$2"
-
-    if [[ ! -f "$env_file" ]]; then
-        # Try to find example file
-        local example_file="${env_file}.example"
-        if [[ -f "$example_file" ]]; then
-            log::error "Environment file '$env_name' not found."
-            log::info "Create it from the example: cp '$(relpath "$example_file")' '$(relpath "$env_file")'"
-        else
-            log::error "Environment file '$(relpath "$env_file")' not found."
-        fi
-        return 1
-    fi
-
-    # Check if file is readable
-    if [[ ! -r "$env_file" ]]; then
-        log::error "Environment file '$(relpath "$env_file")' is not readable."
-        return 1
-    fi
-
-    return 0
-}
-
-# -----------------------------------------------------------------------------
 # SAFE ENV LOADING
 # -----------------------------------------------------------------------------
 env::load() {
@@ -90,8 +116,13 @@ env::load() {
     local env_file
     env_file="$(env::get_file "$env_name")"
 
-    # Validate file exists and is readable
-    if ! env::validate_env_file "$env_file" "$env_name"; then
+    if [[ ! -f "$env_file" ]]; then
+        log::error "Environment file not found: $(relpath "$env_file")"
+        return 1
+    fi
+
+    if [[ ! -r "$env_file" ]]; then
+        log::error "Environment file not readable: $(relpath "$env_file")"
         return 1
     fi
 
@@ -173,7 +204,7 @@ env::list() {
     active="$(env::get_active || echo "")"
 
     printf "%-20s %-12s %s\n" "ENVIRONMENT" "STATUS" "LAST MODIFIED"
-    printf "%s\n" "$(printf '%.0s-' {1..60})"
+    printf "%s\n" "$(printf '%.0s-' {1..70})"
 
     for env in "${envs[@]}"; do
         local env_file status color modified
@@ -188,12 +219,8 @@ env::list() {
             color="$COLOR_YELLOW"
         fi
 
-        # Last modified
-        if [[ -f "$env_file" ]] && command -v stat >/dev/null 2>&1; then
-            modified="$(stat -c "%y" "$env_file" 2>/dev/null | cut -d' ' -f1)"
-        else
-            modified="unknown"
-        fi
+        # Get formatted timestamp
+        modified="$(simple_file_timestamp "$env_file")"
 
         printf "${color}%-20s${COLOR_RESET} %-12s %s\n" \
             "$env" "$status" "$modified"
@@ -201,6 +228,7 @@ env::list() {
 
     echo ""
     echo "Active environment: ${active:-none}"
+    echo "Current time: $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date)"
 }
 
 # -----------------------------------------------------------------------------
@@ -225,7 +253,11 @@ env::select() {
     echo "Select environment:"
     local i=1
     for env in "${envs[@]}"; do
-        printf "  %2d) %s\n" "$i" "$env"
+        local env_file
+        env_file="$(env::get_file "$env")"
+        local modified
+        modified="$(simple_file_timestamp "$env_file")"
+        printf "  %2d) %-15s (updated: %s)\n" "$i" "$env" "$modified"
         ((i++))
     done
     echo "  q) Cancel"
@@ -259,13 +291,6 @@ env::select() {
         return 0
     fi
 
-    # Validate the selected environment file exists
-    local env_file
-    env_file="$(env::get_file "$selected_env")"
-    if ! env::validate_env_file "$env_file" "$selected_env"; then
-        return 1
-    fi
-
     # Save the active environment
     echo "$selected_env" > "$ACTIVE_ENV_FILE"
     log::success "Active environment set to '$selected_env'"
@@ -278,7 +303,7 @@ env::select() {
 }
 
 # -----------------------------------------------------------------------------
-# SHOW ENV STATUS (Fixed categorization)
+# SHOW ENV STATUS
 # -----------------------------------------------------------------------------
 env::status() {
     local env_name
@@ -293,7 +318,8 @@ env::status() {
     local env_file
     env_file="$(env::get_file "$env_name")"
 
-    if ! env::validate_env_file "$env_file" "$env_name"; then
+    if [[ ! -f "$env_file" ]]; then
+        log::error "Environment file not found: $(relpath "$env_file")"
         return 1
     fi
 
@@ -302,18 +328,17 @@ env::status() {
 
     log::header "Environment Status: $env_name"
     echo "File: $(relpath "$env_file")"
+    echo "Modified: $(simple_file_timestamp "$env_file")"
     echo ""
 
-    # Define categories with exclusive patterns to avoid duplicates
+    # Define categories
     declare -A categories=(
         ["DOCKER"]="^COMPOSE_"
         ["APPLICATION"]="^APP_"
         ["DATABASE"]="^DB_"
         ["PGADMIN"]="^PGADMIN_"
-        ["NETWORK"]="^NETWORK_"
         ["HEALTHCHECK"]="^HEALTHCHECK"
         ["POSTGRES"]="^POSTGRES_"
-        ["VOLUME"]="^VOLUME_"
         ["SECURITY"]="_PASSWORD$|_SECRET$|_KEY$|_TOKEN$|SECRET_|PASSWORD_"
     )
 
@@ -355,8 +380,7 @@ env::status() {
 
                 # Mask sensitive values
                 if [[ "$category" == "SECURITY" ]] || \
-                   [[ "$var" =~ _PASSWORD$|_SECRET$|_KEY$|_TOKEN$ ]] || \
-                   [[ "$var" == "PGADMIN_PASSWORD" ]]; then
+                   [[ "$var" =~ _PASSWORD$|_SECRET$|_KEY$|_TOKEN$ ]]; then
                     value="********"
                 elif [[ ${#value} -gt 50 ]]; then
                     value="${value:0:47}..."
@@ -400,6 +424,7 @@ env::status() {
     fi
 
     echo "Total variables loaded: ${#displayed_vars[@]}"
+    echo "Last modified: $(simple_file_timestamp "$env_file")"
 }
 
 # -----------------------------------------------------------------------------
@@ -418,7 +443,8 @@ env::validate() {
     local env_file
     env_file="$(env::get_file "$env_name")"
 
-    if ! env::validate_env_file "$env_file" "$env_name"; then
+    if [[ ! -f "$env_file" ]]; then
+        log::error "Environment file not found: $(relpath "$env_file")"
         return 1
     fi
 
@@ -427,6 +453,7 @@ env::validate() {
 
     log::header "Validating Environment: $env_name"
     echo "File: $(relpath "$env_file")"
+    echo "Modified: $(simple_file_timestamp "$env_file")"
     echo ""
 
     local env_vars=() dist_vars=()
@@ -563,7 +590,7 @@ main() {
             env::select
             ;;
         status)
-            SHOW="${SHOW:-all}" env::status
+            env::status
             ;;
         validate)
             env::validate
