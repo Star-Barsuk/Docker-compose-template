@@ -17,14 +17,43 @@ readonly SECRETS_DIR="$PROJECT_ROOT/docker/secrets"
 # -----------------------------------------------------------------------------
 # COLOR CONSTANTS
 # -----------------------------------------------------------------------------
-readonly COLOR_RESET='\033[0m'
-readonly COLOR_RED='\033[0;31m'
-readonly COLOR_GREEN='\033[0;32m'
-readonly COLOR_YELLOW='\033[1;33m'
-readonly COLOR_BLUE='\033[0;34m'
-readonly COLOR_CYAN='\033[0;36m'
-readonly COLOR_GRAY='\033[0;90m'
-readonly COLOR_BOLD='\033[1m'
+
+readonly COLOR_RESET=$'\033[0m'
+readonly COLOR_RED=$'\033[0;31m'
+readonly COLOR_GREEN=$'\033[0;32m'
+readonly COLOR_YELLOW=$'\033[1;33m'
+readonly COLOR_BLUE=$'\033[0;34m'
+readonly COLOR_CYAN=$'\033[0;36m'
+readonly COLOR_GRAY=$'\033[0;90m'
+readonly COLOR_BOLD=$'\033[1m'
+
+# -----------------------------------------------------------------------------
+# PATH HELPERS
+# -----------------------------------------------------------------------------
+bin::path() {
+    echo "$BIN_DIR"
+}
+
+root::path() {
+    echo "$PROJECT_ROOT"
+}
+
+compose::path() {
+    echo "$COMPOSE_DIR"
+}
+
+secrets::path() {
+    echo "$SECRETS_DIR"
+}
+
+# Get relative path from project root
+relpath() {
+    local path="$1"
+    local root
+    root="$(root::path)"
+    # Remove the root path prefix
+    echo "${path#$root/}"
+}
 
 # -----------------------------------------------------------------------------
 # LOGGING FUNCTIONS
@@ -56,25 +85,6 @@ log::debug() {
 log::fatal() {
     log::error "$1"
     exit 1
-}
-
-# -----------------------------------------------------------------------------
-# PATH HELPERS
-# -----------------------------------------------------------------------------
-bin::path() {
-    echo "$BIN_DIR"
-}
-
-root::path() {
-    echo "$PROJECT_ROOT"
-}
-
-compose::path() {
-    echo "$COMPOSE_DIR"
-}
-
-secrets::path() {
-    echo "$SECRETS_DIR"
 }
 
 # -----------------------------------------------------------------------------

@@ -19,4 +19,4 @@ _help_secrets:
 	@printf "$(GREEN)Secrets$(RESET)\n"
 	@printf "  $(CYAN)secrets-check$(RESET)     Validate secrets\n"
 	@printf "  $(CYAN)secrets-list$(RESET)      List secrets\n"
-	@printf "  $(CYAN)secrets-generate$(RESET)  Generate secrets\n"
+	@printf "  $(CYAN)secrets-generate$(RESET)  Generate secrets (use FORCE=1 to regenerate)\n"
