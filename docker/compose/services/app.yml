@@ -1,6 +1,13 @@
 # Application service definition
 # This service runs the main application
 
+# Default health check configuration
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: ${HEALTHCHECK_INTERVAL:-30s}
+  timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+  retries: ${HEALTHCHECK_RETRIES:-3}
+  start_period: ${HEALTHCHECK_START_PERIOD:-40s}
+
 services:
   app:
     # Image configuration
@@ -9,13 +16,14 @@ services:
       context: ${APP_BUILD_CONTEXT:-../..}
       dockerfile: ${APP_DOCKERFILE:-docker/Dockerfile}
       args:
-        - BUILDKIT_INLINE_CACHE=1
-        - APP_VERSION=${APP_VERSION:-0.1.0}
+        BUILDKIT_INLINE_CACHE: "1"
+        APP_VERSION: ${APP_VERSION:-0.1.0}
       cache_from:
         - ${APP_IMAGE:-my-awesome-app:latest}
 
     # Container identification
     container_name: ${COMPOSE_PROJECT_NAME}_app
+    profiles: ["default"]
     hostname: app
     restart: unless-stopped
 
@@ -26,15 +34,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: ${APP_CPU_LIMIT:-0.2}
-          memory: ${APP_MEMORY_LIMIT:-256m}
+          cpus: "${APP_CPU_LIMIT:-0.2}"
+          memory: "${APP_MEMORY_LIMIT:-256M}"
         reservations:
-          memory: 128m
+          memory: "128M"
 
     # Dependencies
-    depends_on:
-      db:
-        condition: service_healthy
+    depends_on: {}
 
     # Environment variables
     environment:
@@ -44,7 +50,7 @@ services:
 
       # Database connection
       # DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
-      DATABASE_URL: "postgresql://placeholder:placeholder@db:5432/appdb"
+      DATABASE_URL: "postgresql://${DB_USER:-appuser}:placeholder@db:5432/${DB_NAME:-appdb}"
       DB_HOST: ${DB_HOST:-db}
       DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME:-appdb}
@@ -66,6 +72,6 @@ services:
 
     # Labels for container management
     labels:
-      - "com.example.description=Application container"
-      - "com.example.version=${APP_VERSION:-0.1.0}"
-      - "com.example.role=application"
+      com.example.description: "Application container"
+      com.example.version: "${APP_VERSION:-0.1.0}"
+      com.example.role: "application"

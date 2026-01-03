@@ -1,23 +1,75 @@
 # Main Docker Compose configuration file
 # Imports all modular configuration files
 
+# Security configuration profiles
+# Different security levels for different environments
+
+x-security-profiles:
+  # Local development security
+  local: &security-local
+    security_opt: []
+    read_only: false
+    privileged: false
+
+  # Development security
+  dev: &security-dev
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    cap_add:
+      - SETGID
+      - SETUID
+    privileged: false
+
+  # Production security
+  prod: &security-prod
+    security_opt:
+      - no-new-privileges:true
+      - apparmor:docker-default
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100M
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 1024
+        hard: 2048
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    privileged: false
+    init: true
+
 # Import base configuration files
 include:
   - path: ./base/networks.yml
+    optional: true
   - path: ./base/secrets.yml
+    optional: true
   - path: ./base/volumes.yml
-  - path: ./base/security.yml
+    optional: true
+  # - path: ./base/security.yml
+  #   optional: true
   - path: ./base/resources.yml
+    optional: true
 
 # Import service definitions
-include:
   - path: ./services/app.yml
+    optional: true
   - path: ./services/db.yml
+    optional: true
   - path: ./services/pgadmin.yml
+    optional: true
 
 # Import profiles definition
-include:
-  - path: ./services/profiles.yml
+  # - path: ./services/profiles.yml
+  #   optional: true
 
 # Default services
 services:
@@ -29,12 +81,16 @@ services:
     profiles: ["dev-standard"]
     ports:
       - "${APP_PORT_DEV:-8000}:8000"
+    # Dependencies
+    depends_on:
+      db-dev:
+        condition: service_healthy
     <<: *security-dev
     deploy:
       resources:
         limits:
-          cpus: ${APP_CPU_LIMIT:-0.2}
-          memory: ${APP_MEMORY_LIMIT:-256M}
+          cpus: "${APP_CPU_LIMIT:-0.2}"
+          memory: "${APP_MEMORY_LIMIT:-256M}"
 
   # Production application service
   app-prod:
@@ -43,13 +99,13 @@ services:
       service: app
     profiles: ["prod-standard"]
     ports:
-    - "${APP_PORT_PROD:-8001}:8001"
+      - "${APP_PORT_PROD:-8001}:8001"
     <<: *security-prod
     deploy:
       resources:
         limits:
-          cpus: ${APP_CPU_LIMIT:-0.5}
-          memory: ${APP_MEMORY_LIMIT:-512M}
+          cpus: "${APP_CPU_LIMIT:-0.5}"
+          memory: "${APP_MEMORY_LIMIT:-512M}"
 
   # Test application service
   app-test:

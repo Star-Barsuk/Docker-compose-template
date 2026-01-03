@@ -6,7 +6,7 @@ profiles:
   # LOCAL DEVELOPMENT PROFILES
   # ------------------------------------------------------------
 
-  # Local database only (application runs on host)
+  # Local database only
   local-db:
     description: "Local database only"
     services:

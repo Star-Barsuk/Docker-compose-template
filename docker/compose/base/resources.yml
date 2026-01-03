@@ -21,8 +21,8 @@ x-resource-profiles:
     priority: high
 
 # Default health check configuration
-x-healthcheck-defaults: &healthcheck-defaults
-  interval: ${HEALTHCHECK_INTERVAL:-30s}
-  timeout: ${HEALTHCHECK_TIMEOUT:-10s}
-  retries: ${HEALTHCHECK_RETRIES:-3}
-  start_period: ${HEALTHCHECK_START_PERIOD:-40s}
+# x-healthcheck-defaults: &healthcheck-defaults
+#   interval: ${HEALTHCHECK_INTERVAL:-30s}
+#   timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+#   retries: ${HEALTHCHECK_RETRIES:-3}
+#   start_period: ${HEALTHCHECK_START_PERIOD:-40s}

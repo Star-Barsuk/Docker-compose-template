@@ -1,6 +1,13 @@
 # PgAdmin service definition
 # Web-based PostgreSQL administration tool
 
+# Default health check configuration
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: ${HEALTHCHECK_INTERVAL:-30s}
+  timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+  retries: ${HEALTHCHECK_RETRIES:-3}
+  start_period: ${HEALTHCHECK_START_PERIOD:-40s}
+
 services:
   pgadmin:
     # PgAdmin image
@@ -8,6 +15,7 @@ services:
 
     # Container identification
     container_name: ${COMPOSE_PROJECT_NAME}_pgadmin
+    profiles: ["default"]
     hostname: pgadmin
     restart: unless-stopped
 
