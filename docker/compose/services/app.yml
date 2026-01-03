@@ -13,7 +13,7 @@ services:
     # Image configuration
     image: ${APP_IMAGE:-my-awesome-app:${APP_VERSION:-latest}}
     build:
-      context: ${APP_BUILD_CONTEXT:-../..}
+      context: ${APP_BUILD_CONTEXT:-../../..}
       dockerfile: ${APP_DOCKERFILE:-docker/Dockerfile}
       args:
         BUILDKIT_INLINE_CACHE: "1"
