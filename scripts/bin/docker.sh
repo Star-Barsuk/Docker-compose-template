@@ -1,413 +1,323 @@
 #!/bin/bash
-source "$(dirname "$0")/lib.sh"
+# =============================================================================
+# DOCKER MANAGEMENT
+# =============================================================================
 
-# Docker Compose command executor with environment handling
-docker::compose_cmd() {
-    local cmd="$1"
-    shift
+set -euo pipefail
 
-    # Load environment and get active environment
-    local env_name
-    env_name="$(load::environment)" || return 1
+# Initialize paths and source lib.sh
+source "$(dirname "$0")/init.sh"
 
-    local compose_file
-    compose_file="$(compose::path)/docker-compose.core.yml"
-
-    if [[ ! -f "$compose_file" ]]; then
-        log::error "Docker Compose file not found: $compose_file"
-        return 1
-    fi
-
-    # Build Docker Compose command with environment variables
-    local compose_args=(
-        "--file" "$compose_file"
-        "--project-directory" "$(compose::path)"
-    )
-
-    # Add project name if set
-    if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
-        compose_args+=("--project-name" "$COMPOSE_PROJECT_NAME")
-    fi
-
-    # Add profile if set
-    if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
-        compose_args+=("--profile" "$COMPOSE_PROFILES")
-    fi
-
-    log::debug "Executing: docker compose ${compose_args[*]} $cmd $*"
-    log::info "Using environment: $env_name, profile: ${COMPOSE_PROFILES:-default}"
-
-    # Execute command
-    docker compose "${compose_args[@]}" "$cmd" "$@"
-}
-
-# Validate Docker Compose configuration
+# -----------------------------------------------------------------------------
+# VALIDATION
+# -----------------------------------------------------------------------------
 docker::validate() {
-    log::header "Validating Docker Compose Configuration"
+    log::header "Validating Configuration"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
-    # Check Docker Compose file
-    local compose_file
-    compose_file="$(compose::path)/docker-compose.core.yml"
+    if compose::cmd config --quiet; then
+        log::success "Docker Compose configuration is valid"
 
-    if ! docker::compose_cmd config --quiet; then
-        log::error "Docker Compose configuration is invalid"
-        return 1
-    fi
-
-    log::success "Docker Compose configuration is valid"
-
-    # Show active services
-    echo ""
-    log::info "Active profile: ${COMPOSE_PROFILES:-default}"
-    log::info "Project name: ${COMPOSE_PROJECT_NAME:-not set}"
-
-    # List services in the active profile
-    if docker::compose_cmd config --services > /dev/null 2>&1; then
         local services
-        services=$(docker::compose_cmd config --services 2>/dev/null | sort)
+        services=$(compose::cmd config --services 2>/dev/null | sort)
+
         if [[ -n "$services" ]]; then
             echo ""
-            log::info "Services in active profile:"
-            echo "$services" | while read -r service; do
-                echo "  - $service"
-            done
+            log::info "Active services:"
+            echo "$services" | sed 's/^/  /'
         fi
+        return 0
+    else
+        log::error "Invalid Docker Compose configuration"
+        return 1
     fi
 }
 
-# Start services
+# -----------------------------------------------------------------------------
+# SERVICE MANAGEMENT
+# -----------------------------------------------------------------------------
 docker::up() {
-    log::header "Starting Docker Services"
+    log::header "Starting Services"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
-    # Validate configuration first
-    if ! docker::validate; then
-        log::error "Validation failed. Aborting startup."
+    if [[ "${FORCE:-}" != "1" ]] && \
+       compose::cmd ps --services --filter "status=running" 2>/dev/null | grep -q .; then
+        log::warn "Some services are already running."
+        echo "Use FORCE=1 to restart, or 'make stop' first."
         return 1
     fi
 
-    # Check for port conflicts
-    log::info "Checking for port conflicts..."
-    if docker::compose_cmd ps --services --filter "status=running" 2>/dev/null | grep -q .; then
-        log::warn "Some services are already running"
-        if [[ "${FORCE:-}" != "1" ]]; then
-            echo "Use FORCE=1 to restart or run 'make stop' first"
-            return 1
-        fi
-    fi
+    docker::validate || return 1
 
-    # Start services
     log::info "Starting services..."
-    if docker::compose_cmd up --detach --wait --wait-timeout 120; then
+    if compose::cmd up --detach --wait --wait-timeout 120; then
         log::success "Services started successfully"
 
-        # Show service status
         echo ""
-        docker::compose_cmd ps --all
+        compose::cmd ps --all
 
-        # Show URLs if available
         echo ""
         log::info "Service URLs:"
-        if [[ -n "${APP_PORT_DEV:-}" ]]; then
-            echo "  Application: http://localhost:${APP_PORT_DEV:-8000}"
-        fi
-        if [[ -n "${PGADMIN_PORT_DEV:-}" ]]; then
-            echo "  PgAdmin: http://localhost:${PGADMIN_PORT_DEV:-8080}"
-        fi
+        [[ -n "${APP_PORT_DEV:-}" ]] && echo "  Application: http://localhost:${APP_PORT_DEV}"
+        [[ -n "${PGADMIN_PORT_DEV:-}" ]] && echo "  PgAdmin:     http://localhost:${PGADMIN_PORT_DEV}"
     else
         log::error "Failed to start services"
         return 1
     fi
 }
 
-# Stop services
 docker::stop() {
-    log::header "Stopping Docker Services"
+    log::header "Stopping Services"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
     log::info "Stopping services..."
-    if docker::compose_cmd stop --timeout 30; then
-        log::success "Services stopped successfully"
-
-        # Show stopped services
+    if compose::cmd stop --timeout 30; then
+        log::success "Services stopped"
         echo ""
-        docker::compose_cmd ps --all
+        compose::cmd ps --all
     else
         log::error "Failed to stop services"
         return 1
     fi
 }
 
-# Remove services
 docker::down() {
-    log::header "Removing Docker Services"
+    log::header "Removing Services"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
-    # Ask for confirmation when volumes are involved
-    local remove_volumes=""
+    local args=("--remove-orphans")
+
+    # Handle volume removal
     if [[ "${REMOVE_VOLUMES:-}" == "1" ]]; then
-        remove_volumes="--volumes"
-        log::warn "WARNING: This will remove all data volumes!"
-    fi
+        args+=("--volumes")
+        log::warn "WARNING: This will remove ALL data volumes!"
 
-    if [[ "${FORCE:-}" != "1" ]] && [[ -n "$remove_volumes" ]]; then
-        echo "Are you sure you want to remove services and all data volumes? (yes/no)"
-        read -r confirm
-        if [[ "$confirm" != "yes" ]]; then
-            log::info "Operation cancelled"
-            return 0
+        if [[ "${FORCE:-}" != "1" ]]; then
+            read -rp "Are you sure? Type 'YES' to confirm: " confirm
+            if [[ "$confirm" != "YES" ]]; then
+                log::info "Operation cancelled."
+                return 0
+            fi
         fi
     fi
 
     log::info "Removing services..."
-    if docker::compose_cmd down $remove_volumes --remove-orphans; then
-        log::success "Services removed successfully"
+    if compose::cmd down "${args[@]}"; then
+        log::success "Services removed"
     else
         log::error "Failed to remove services"
         return 1
     fi
 }
 
-# Build images
+# -----------------------------------------------------------------------------
+# BUILD
+# -----------------------------------------------------------------------------
 docker::build() {
-    log::header "Building Docker Images"
+    log::header "Building Images"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
-    # Build arguments from environment
-    local build_args=()
-    if [[ -n "${APP_VERSION:-}" ]]; then
-        build_args+=("--build-arg" "APP_VERSION=${APP_VERSION}")
-    fi
+    local args=("--pull" "--progress" "plain")
+    [[ -n "${APP_VERSION:-}" ]] && args+=("--build-arg" "APP_VERSION=${APP_VERSION}")
 
-    log::info "Building images with cache..."
-    if docker::compose_cmd build --pull --progress plain "${build_args[@]}"; then
+    log::info "Building images..."
+    if compose::cmd build "${args[@]}"; then
         log::success "Images built successfully"
 
-        # Show image information
         echo ""
         log::info "Built images:"
-        docker::compose_cmd images --quiet | xargs docker inspect --format='{{.RepoTags}}' 2>/dev/null || true
+        compose::cmd images --quiet 2>/dev/null | while read -r image; do
+            docker inspect --format='{{range .RepoTags}}{{.}}{{end}}' "$image" 2>/dev/null || true
+        done | sort
     else
-        log::error "Failed to build images"
+        log::error "Build failed"
         return 1
     fi
 }
 
-# Safe cleanup
+# -----------------------------------------------------------------------------
+# CLEANUP
+# -----------------------------------------------------------------------------
 docker::clean() {
-    log::header "Cleaning Docker Resources"
+    log::header "Cleaning Up"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
-    # Check if services are running
-    if docker::compose_cmd ps --services --filter "status=running" 2>/dev/null | grep -q .; then
-        log::error "Services are still running. Stop them first with 'make stop'"
+    # Stop if services are running
+    if compose::cmd ps --services --filter "status=running" 2>/dev/null | grep -q .; then
+        log::error "Services are running. Stop them first with 'make stop'"
         return 1
     fi
 
-    log::info "Cleaning up resources..."
+    log::info "Cleaning Docker resources..."
 
-    # Remove containers
-    if docker::compose_cmd ps --services --quiet 2>/dev/null | grep -q .; then
-        log::info "Removing stopped containers..."
-        docker::compose_cmd down --remove-orphans
-    fi
+    # Remove stopped containers
+    compose::cmd down --remove-orphans 2>/dev/null || true
 
     # Remove dangling images
-    local dangling_images
-    dangling_images=$(docker images --filter "dangling=true" -q 2>/dev/null | wc -l)
-    if [[ "$dangling_images" -gt 0 ]]; then
-        log::info "Removing $dangling_images dangling images..."
-        docker image prune --force
+    local dangling
+    dangling=$(docker images --filter "dangling=true" -q 2>/dev/null | wc -l)
+    if [[ $dangling -gt 0 ]]; then
+        log::info "Removing $dangling dangling images..."
+        docker image prune --force 2>/dev/null || true
     fi
 
-    # Remove unused networks (except default ones)
-    log::info "Cleaning unused networks..."
-    docker network prune --force --filter "label!=com.docker.compose.network"
+    # Clean networks
+    docker network prune --force --filter "label!=com.docker.compose.network" 2>/dev/null || true
 
     log::success "Cleanup completed"
 }
 
-# Full cleanup (dangerous)
 docker::nuke() {
-    log::header "⚠️  FULL DOCKER CLEANUP (DANGEROUS)"
+    log::header "⚠️  FULL CLEANUP"
 
-    echo "WARNING: This will remove ALL Docker resources for this project and environment."
-    echo "This includes:"
-    echo "  - All containers"
-    echo "  - All images"
-    echo "  - All volumes"
-    echo "  - All networks"
-    echo ""
-    echo "Active environment: $(load::environment 2>/dev/null || echo "unknown")"
-    echo "Project name: ${COMPOSE_PROJECT_NAME:-not set}"
+    echo "WARNING: This will remove ALL Docker resources for this project!"
+    echo "Including: containers, images, volumes, networks"
     echo ""
 
     if [[ "${FORCE:-}" != "1" ]]; then
-        echo "Are you absolutely sure? This cannot be undone. Type 'NUKE' to confirm:"
-        read -r confirm
+        read -rp "Type 'NUKE' to confirm: " confirm
         if [[ "$confirm" != "NUKE" ]]; then
-            log::info "Operation cancelled"
+            log::info "Operation cancelled."
             return 0
         fi
     fi
 
-    log::warn "Starting full cleanup..."
+    load::environment >/dev/null 2>&1 || true
 
-    # Load environment to get project name
-    local env_name
-    env_name="$(load::environment 2>/dev/null || true)"
+    log::warn "Starting nuclear cleanup..."
 
-    # Stop and remove all project containers
-    log::info "Removing containers..."
-    docker::compose_cmd down --volumes --remove-orphans --rmi all 2>/dev/null || true
+    # Remove everything
+    compose::cmd down --volumes --remove-orphans --rmi all 2>/dev/null || true
 
-    # Remove project images
-    log::info "Removing images..."
-    docker::compose_cmd images --quiet 2>/dev/null | xargs docker rmi --force 2>/dev/null || true
+    # Force remove any remaining images
+    compose::cmd images --quiet 2>/dev/null | xargs -r docker rmi --force 2>/dev/null || true
 
-    # Remove project volumes
-    log::info "Removing volumes..."
-    docker volume ls --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}" -q 2>/dev/null | xargs docker volume rm --force 2>/dev/null || true
+    # Remove volumes
+    docker volume ls --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}" -q 2>/dev/null | \
+        xargs -r docker volume rm --force 2>/dev/null || true
 
-    # Remove project networks
-    log::info "Removing networks..."
-    docker network ls --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}" -q 2>/dev/null | xargs docker network rm 2>/dev/null || true
+    # System prune
+    docker system prune --all --force --volumes 2>/dev/null || true
 
-    # Full system cleanup
-    log::info "Cleaning system..."
-    docker system prune --all --force --volumes
-
-    log::success "Full cleanup completed"
-    log::warn "All Docker resources for project '${COMPOSE_PROJECT_NAME:-}' have been removed"
+    log::success "Nuclear cleanup completed"
+    log::warn "All Docker resources for this project have been removed"
 }
 
-# View logs
+# -----------------------------------------------------------------------------
+# LOGS & SHELL
+# -----------------------------------------------------------------------------
 docker::logs() {
-    log::header "Viewing Docker Logs"
+    log::header "Viewing Logs"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
-    local follow="${FOLLOW:-0}"
-    local tail_lines="${TAIL:-100}"
+    local args=()
+    [[ "${FOLLOW:-}" == "1" ]] && args+=("--follow")
+    args+=("--tail=${TAIL:-100}")
 
-    if [[ "$follow" == "1" ]]; then
-        log::info "Following logs (Ctrl+C to stop)..."
-        docker::compose_cmd logs --follow --tail="$tail_lines" "$@"
-    else
-        docker::compose_cmd logs --tail="$tail_lines" "$@"
-    fi
+    compose::cmd logs "${args[@]}" "$@"
 }
 
-# Execute command in container
 docker::shell() {
-    log::header "Container Shell Access"
+    log::header "Container Shell"
 
-    local env_name
-    env_name="$(load::environment)" || return 1
+    load::environment >/dev/null || return 1
 
     local service="${1:-app-dev}"
 
-    # Check if service exists
-    if ! docker::compose_cmd ps --services | grep -q "^$service$"; then
-        log::error "Service '$service' not found in active profile"
+    # Check service exists
+    if ! compose::cmd ps --services 2>/dev/null | grep -q "^$service$"; then
+        log::error "Service '$service' not found"
         echo "Available services:"
-        docker::compose_cmd ps --services | sort | sed 's/^/  - /'
+        compose::cmd ps --services 2>/dev/null | sed 's/^/  /'
         return 1
     fi
 
-    # Check if service is running
-    if ! docker::compose_cmd ps --services --filter "status=running" | grep -q "^$service$"; then
-        log::warn "Service '$service' is not running. Starting it first..."
-        docker::compose_cmd up --detach --wait "$service" || {
-            log::error "Failed to start service '$service'"
-            return 1
-        }
+    # Ensure service is running
+    if ! compose::cmd ps --services --filter "status=running" 2>/dev/null | grep -q "^$service$"; then
+        log::warn "Service '$service' not running. Starting..."
+        compose::cmd up --detach --wait "$service" || return 1
     fi
 
-    log::info "Entering shell in service: $service"
-    echo "Use 'exit' to leave the container shell"
-    echo ""
-
-    docker::compose_cmd exec "$service" sh -c "which bash >/dev/null 2>&1 && exec bash || exec sh"
+    log::info "Entering shell in: $service"
+    compose::cmd exec "$service" sh -c "exec \${SHELL:-sh}"
 }
 
-# Main dispatcher
+# -----------------------------------------------------------------------------
+# MAIN DISPATCHER
+# -----------------------------------------------------------------------------
 main() {
-    local command="${1:-}"
+    local cmd="${1:-help}"
 
-    case "$command" in
-        up|down|stop|build|clean|nuke|logs|shell)
-            docker::$command "${@:2}"
+    case "$cmd" in
+        up|down|stop|build|clean|nuke|logs|shell|validate)
+            docker::$cmd "${@:2}"
             ;;
-        validate)
-            docker::validate
-            ;;
-        ps|status)
-            load::environment >/dev/null 2>&1 || exit 1
-            docker::compose_cmd ps --all "${@:2}"
+        ps)
+            load::environment >/dev/null || exit 1
+            compose::cmd ps "${@:2}"
             ;;
         images)
-            load::environment >/dev/null 2>&1 || exit 1
-            docker::compose_cmd images "${@:2}"
+            load::environment >/dev/null || exit 1
+            compose::cmd images "${@:2}"
             ;;
         exec)
-            load::environment >/dev/null 2>&1 || exit 1
-            docker::compose_cmd exec "${@:2}"
+            load::environment >/dev/null || exit 1
+            compose::cmd exec "${@:2}"
+            ;;
+        config)
+            load::environment >/dev/null || exit 1
+            compose::cmd config "${@:2}"
             ;;
         help|--help|-h)
-            echo "Docker Management Commands"
-            echo "Usage: $0 COMMAND [ARGS...]"
-            echo ""
-            echo "Commands:"
-            echo "  up                 Start services"
-            echo "  stop               Stop services"
-            echo "  down               Remove services (add REMOVE_VOLUMES=1 for volumes)"
-            echo "  build              Build images"
-            echo "  clean              Safe cleanup (stopped containers, networks)"
-            echo "  nuke               Full cleanup (WARNING: removes everything)"
-            echo "  logs [SERVICE]     View logs (FOLLOW=1 to follow, TAIL=lines)"
-            echo "  shell [SERVICE]    Enter container shell (default: app-dev)"
-            echo "  ps|status          List containers"
-            echo "  images             List images"
-            echo "  exec SERVICE CMD   Execute command in container"
-            echo "  validate           Validate configuration"
-            echo ""
-            echo "Environment variables:"
-            echo "  FORCE=1            Skip confirmation prompts"
-            echo "  FOLLOW=1           Follow log output"
-            echo "  TAIL=100           Number of log lines to show"
-            echo "  REMOVE_VOLUMES=1   Remove volumes with 'down' command"
-            echo ""
-            echo "Examples:"
-            echo "  $0 up              # Start services"
-            echo "  $0 logs app-dev    # View app logs"
-            echo "  $0 shell           # Enter app container shell"
-            echo "  FOLLOW=1 $0 logs   # Follow all logs"
+            cat << EOF
+Docker Management
+
+Usage: $0 COMMAND [ARGS...]
+
+Commands:
+  up                   Start services
+  stop                 Stop services
+  down                 Remove services
+  build                Build images
+  clean                Safe cleanup
+  nuke                 Remove everything (danger!)
+  logs [SERVICE]       View logs
+  shell [SERVICE]      Enter container shell
+  ps                   List containers
+  images               List images
+  exec SERVICE CMD     Execute command in container
+  config               Validate configuration
+  validate             Alias for config --quiet
+
+Options (environment variables):
+  FORCE=1              Skip confirmations
+  FOLLOW=1             Follow log output
+  TAIL=N               Number of log lines (default: 100)
+  REMOVE_VOLUMES=1     Remove volumes with 'down'
+
+Examples:
+  $0 up
+  $0 logs app-dev
+  $0 shell db-dev
+  FOLLOW=1 TAIL=50 $0 logs
+EOF
             ;;
         *)
-            if [[ -z "$command" ]]; then
-                echo "No command specified"
-            else
-                echo "Unknown command: $command"
-            fi
-            echo "Use '$0 help' for available commands"
+            log::error "Unknown command: $cmd"
+            echo "Use '$0 help' for usage"
             exit 1
             ;;
     esac
 }
 
-[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
+# Only run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
