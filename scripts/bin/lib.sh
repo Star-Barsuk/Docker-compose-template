@@ -145,19 +145,21 @@ compose::cmd() {
     local env_name
     env_name=$(load::environment) || return 1
 
-    local compose_file="${COMPOSE_DIR:-}/docker-compose.core.yml"
-    validate::file_exists "$compose_file" || return 1
+    validate::file_exists "$COMPOSE_FILE" || return 1
     validate::docker_running || return 1
 
     local args=(
-        "--file" "$compose_file"
+        "--file" "$COMPOSE_FILE"
         "--project-directory" "$COMPOSE_DIR"
+        "--env-file" "${ENVS_DIR:-}/.env.${env_name}"
     )
 
     [[ -n "${COMPOSE_PROJECT_NAME:-}" ]] && args+=("--project-name" "$COMPOSE_PROJECT_NAME")
     [[ -n "${COMPOSE_PROFILES:-}" ]] && args+=("--profile" "$COMPOSE_PROFILES")
 
-    log::debug "Executing: docker compose ${args[*]} $*"
+    log::debug "Executing docker compose with env: $env_name"
+    log::debug "Executing docker compose with args: ${args[*]} $*"
+
     docker compose "${args[@]}" "$@"
 }
 

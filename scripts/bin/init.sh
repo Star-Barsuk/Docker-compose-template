@@ -16,6 +16,7 @@ fi
 
 export PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 export COMPOSE_DIR="$PROJECT_ROOT/docker/compose"
+export COMPOSE_FILE="$PROJECT_ROOT/docker/compose/docker-compose.core.yml"
 export SECRETS_DIR="$PROJECT_ROOT/docker/secrets"
 export ENVS_DIR="$PROJECT_ROOT/envs"
 export ACTIVE_ENV_FILE="$PROJECT_ROOT/.active-env"
