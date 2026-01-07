@@ -17,7 +17,10 @@ down:
 	@bash $(SCRIPTS_DIR)/docker.sh down $(and $(REMOVE_VOLUMES),REMOVE_VOLUMES=$(REMOVE_VOLUMES)) $(and $(FORCE),FORCE=$(FORCE))
 
 build:
-	@bash $(SCRIPTS_DIR)/docker.sh build $(and $(NO_CACHE),NO_CACHE=$(NO_CACHE)) $(and $(FORCE),FORCE=$(FORCE))
+	@bash $(SCRIPTS_DIR)/docker.sh build \
+		$(and $(NO_CACHE),NO_CACHE=$(NO_CACHE)) \
+		$(and $(FORCE),FORCE=$(FORCE)) \
+		$(and $(PROGRESS),PROGRESS=$(PROGRESS))
 
 # -----------------------------------------------------------------------------
 # CLEANUP
@@ -98,7 +101,7 @@ _help_docker:
 	@echo "  make up                Start stack (FORCE=1 to restart)"
 	@echo "  make stop              Stop stack (FORCE=1 for immediate)"
 	@echo "  make down              Remove stack (REMOVE_VOLUMES=1 for volumes, FORCE=1 to skip confirm)"
-	@echo "  make build             Build images (NO_CACHE=1 to disable cache, FORCE=1 to force)"
+	@echo "  make build             Build images (NO_CACHE=1 to disable cache, FORCE=1 to force, PROGRESS=plain/auto/quiet)"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean [TARGETS]   Clean specific resources"

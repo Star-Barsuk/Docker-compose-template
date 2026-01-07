@@ -68,7 +68,8 @@ docker::up() {
 
     log::info "Starting services..."
 
-    local compose_args=("--detach" "--wait" "--wait-timeout" "120")
+    # local compose_args=("--detach" "--wait" "--wait-timeout" "120")
+    local compose_args=("--detach")
     [[ "${FORCE:-}" == "1" ]] && compose_args+=("--force-recreate")
 
     if compose::cmd up "${compose_args[@]}"; then
@@ -514,12 +515,12 @@ docker::df() {
         return 1
     fi
 
-    docker system df "${@:-}"
+    docker system df
 
     echo ""
     log::info "Detailed information:"
     echo "$(printf '─%.0s' {1..60})"
-    docker system df --verbose
+    docker system df --verbose 2>/dev/null || docker system df
 }
 
 docker::inspect() {
