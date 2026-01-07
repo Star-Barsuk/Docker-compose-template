@@ -121,25 +121,19 @@ docker::stop() {
 }
 
 docker::down() {
-    log::header "Removing Services"
+    log::header "Remaining Services"
 
     if ! load::environment >/dev/null; then
         return 1
     fi
+
+    docker::stop
 
     local compose_args=("--remove-orphans")
 
     if [[ "${REMOVE_VOLUMES:-0}" == "1" ]]; then
         compose_args+=("--volumes")
         log::warn "Removing all persistent data volumes."
-    fi
-
-    local running_count
-    running_count=$(compose::cmd ps --services --filter "status=running" 2>/dev/null | wc -l)
-
-    if [[ $running_count -gt 0 ]]; then
-        log::info "Stopping $running_count running service(s)..."
-        compose::cmd stop --timeout 1
     fi
 
     log::info "Removing services..."
@@ -236,10 +230,11 @@ docker::clean() {
         targets=("containers" "images" "cache")
     fi
 
+    local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}"
     local running_count
-    running_count=$(compose::cmd ps --services --filter "status=running" 2>/dev/null | wc -l)
+    running_count=$(docker ps --filter "$project_filter" --filter "status=running" -q 2>/dev/null | wc -l)
 
-    if [[ $running_count -gt 0 ]]; then
+    if [[ $running_count -gt 0 ]] && [[ "${FORCE:-}" != "1" ]]; then
         log::error "Cannot clean while $running_count service(s) are running"
         echo "Use 'stop' first or specify '--force' flag"
         return 1
@@ -293,14 +288,16 @@ docker::_clean_images() {
         docker image prune --force 2>/dev/null || true
     fi
 
-    if [[ "${FORCE:-}" == "1" ]]; then
-        local unused_count
-        unused_count=$(docker images --filter "dangling=false" -q 2>/dev/null | wc -l)
+    local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}"
+    local project_images=()
+    mapfile -t project_images < <(docker images --filter "$project_filter" --format "{{.ID}}" 2>/dev/null)
 
-        if [[ $unused_count -gt 0 ]]; then
-            log::info "Removing $unused_count unused image(s)..."
-            docker image prune --all --force 2>/dev/null || true
-        fi
+    if [[ ${#project_images[@]} -gt 0 ]]; then
+        log::info "Removing ${#project_images[@]} project image(s)..."
+        for image_id in "${project_images[@]}"; do
+            echo "  Removing image: ${image_id:0:12}..."
+            docker rmi -f "$image_id" 2>/dev/null || true
+        done
     fi
 }
 
@@ -351,12 +348,25 @@ docker::logs() {
     fi
 
     local services=()
+    local compose_args=()
 
-    local args=()
-    for arg in "$@"; do
-        if [[ "$arg" != "--" ]]; then
-            services+=("$arg")
-        fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --tail=*|--tail)
+                compose_args+=("$1")
+                if [[ "$1" == "--tail" ]] && [[ $# -gt 1 ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+                    compose_args+=("$2")
+                    shift
+                fi
+                ;;
+            --follow|-f|--timestamps|-t|--since=*|--until=*)
+                compose_args+=("$1")
+                ;;
+            *)
+                services+=("$1")
+                ;;
+        esac
+        shift
     done
 
     if [[ ${#services[@]} -eq 0 ]]; then
@@ -368,7 +378,7 @@ docker::logs() {
         fi
 
         log::info "Showing logs for all ${#services[@]} service(s):"
-        echo "${services[@]}" | tr ' ' '\n' | sed 's/^/  /'
+        printf '  %s\n' "${services[@]}"
         echo ""
     fi
 
@@ -378,7 +388,7 @@ docker::logs() {
             log::info "Logs for $service:"
             echo "$(printf '=%.0s' {1..60})"
 
-            if ! compose::cmd logs "$service"; then
+            if ! compose::cmd logs "${compose_args[@]}" "$service"; then
                 log::warn "Failed to get logs for $service"
                 has_errors=1
             fi
@@ -404,7 +414,6 @@ docker::shell() {
     fi
 
     local service="${1:-}"
-    local user="${2:-}"
 
     if [[ -z "$service" ]]; then
         local services
@@ -422,49 +431,24 @@ docker::shell() {
         done
     fi
 
-    if ! compose::cmd ps --services 2>/dev/null | grep -q "^$service$"; then
-        log::error "Service '$service' not found"
-        echo "Available services:"
-        compose::cmd ps --services 2>/dev/null | sed 's/^/  /'
+    local container_id
+    container_id=$(compose::cmd ps -q "$service" 2>/dev/null)
+
+    if [[ -z "$container_id" ]]; then
+        log::error "Container for service '$service' not found or not running"
         return 1
     fi
 
-    local service_status
-    service_status=$(compose::cmd ps --services --filter "status=running" 2>/dev/null | grep "^$service$" || true)
+    log::info "Entering shell in $service (container: ${container_id:0:12})..."
 
-    if [[ -z "$service_status" ]]; then
-        log::warn "Service '$service' is not running"
-
-        if [[ "${FORCE:-}" != "1" ]]; then
-            read -rp "Start the service? (y/N): " -n 1 confirm
-            echo ""
-            [[ "$confirm" != "y" ]] && [[ "$confirm" != "Y" ]] && return 0
-        fi
-
-        log::info "Starting $service..."
-        if ! compose::cmd up --detach --wait "$service"; then
-            log::error "Failed to start $service"
-            return 1
-        fi
+    if docker exec "$container_id" which bash >/dev/null 2>&1; then
+        docker exec -it "$container_id" bash
+    elif docker exec "$container_id" which ash >/dev/null 2>&1; then
+        docker exec -it "$container_id" ash
+    else
+        docker exec -it "$container_id" sh
     fi
-
-    local shell_cmd="sh"
-    local service_image
-    service_image=$(compose::cmd config --services | grep "^$service$" | head -1)
-
-    if compose::cmd exec "$service" which bash >/dev/null 2>&1; then
-        shell_cmd="bash"
-    elif compose::cmd exec "$service" which zsh >/dev/null 2>&1; then
-        shell_cmd="zsh"
-    fi
-
-    local exec_args=()
-    [[ -n "$user" ]] && exec_args+=("--user" "$user")
-
-    log::info "Entering $shell_cmd shell in $service..."
-    compose::cmd exec "${exec_args[@]}" "$service" "$shell_cmd"
 }
-
 # -----------------------------------------------------------------------------
 # MONITORING
 # -----------------------------------------------------------------------------
@@ -488,68 +472,74 @@ docker::stats() {
         return 1
     fi
 
-    local services
-    services=($(compose::cmd ps --services 2>/dev/null))
-
-    if [[ ${#services[@]} -eq 0 ]]; then
-        log::info "No services found"
-        return 0
-    fi
-
     local container_ids=()
+
+    local services
+    services=($(compose::cmd ps --services 2>/dev/null || true))
+
     for service in "${services[@]}"; do
         local container_id
         container_id=$(compose::cmd ps -q "$service" 2>/dev/null)
-        [[ -n "$container_id" ]] && container_ids+=("$container_id")
+        if [[ -n "$container_id" ]]; then
+            container_ids+=("$container_id")
+        fi
     done
 
     if [[ ${#container_ids[@]} -eq 0 ]]; then
-        log::info "No running containers found"
+        local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}"
+        mapfile -t container_ids < <(docker ps -q --filter "$project_filter" 2>/dev/null || true)
+    fi
+
+    if [[ ${#container_ids[@]} -eq 0 ]]; then
+        log::info "No running containers found for project"
         return 0
     fi
 
-    docker stats "${container_ids[@]}" --no-stream "${@:-}"
+    log::info "Showing statistics for ${#container_ids[@]} container(s):"
+    for id in "${container_ids[@]}"; do
+        local name
+        name=$(docker inspect --format '{{.Name}}' "$id" 2>/dev/null | sed 's/^\///' || echo "$id")
+        echo "  - $name"
+    done
+    echo ""
+
+    if [[ $# -eq 0 ]]; then
+        docker stats "${container_ids[@]}" --no-stream
+    else
+        docker stats "${container_ids[@]}" "$@"
+    fi
 }
 
 docker::df() {
     log::header "Docker Disk Usage"
 
-    if ! validate::docker_running; then
-        return 1
-    fi
-
-    docker system df
-
-    echo ""
-    log::info "Detailed information:"
-    echo "$(printf '─%.0s' {1..60})"
-    docker system df --verbose 2>/dev/null || docker system df
-}
-
-docker::inspect() {
-    log::header "Container Inspection"
-
-    if ! load::environment >/dev/null; then
-        return 1
-    fi
-
-    local service="${1:-}"
-
-    if [[ -z "$service" ]]; then
-        log::info "Inspecting all services..."
-        compose::cmd ps --all
+    if ! load::environment >/dev/null 2>&1; then
+        log::warn "Cannot load environment, showing system-wide usage"
+        docker system df
         return 0
     fi
 
-    local container_id
-    container_id=$(compose::cmd ps -q "$service" 2>/dev/null)
+    docker::_list_resources "Project Resources: ${COMPOSE_PROJECT_NAME:-unknown}"
 
-    if [[ -z "$container_id" ]]; then
-        log::error "Container for service '$service' not found"
-        return 1
+    echo ""
+    echo "Detailed disk usage:"
+    echo "$(printf '─%.0s' {1..30})"
+
+    local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}"
+
+    local image_size=0
+    while read -r image_id; do
+        [[ -z "$image_id" ]] && continue
+        local size
+        size=$(docker inspect --format='{{.Size}}' "$image_id" 2>/dev/null || echo "0")
+        image_size=$((image_size + size))
+    done < <(docker images --filter "$project_filter" -q 2>/dev/null)
+
+    if [[ $image_size -gt 0 ]]; then
+        local human_size
+        human_size=$(echo "$image_size" | awk '{printf "%.2f MB", $1/1024/1024}')
+        echo "  Images total size: $human_size"
     fi
-
-    docker inspect "$container_id" "${@:2}"
 }
 
 docker::ports() {
@@ -686,22 +676,18 @@ docker::_list_resources() {
 
     local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}"
 
-    # Containers
     local container_count
     container_count=$(docker ps -a --filter "$project_filter" -q 2>/dev/null | wc -l)
     printf "  %-15s: %d\n" "Containers" "$container_count"
 
-    # Images
     local image_count
     image_count=$(docker images --filter "$project_filter" -q 2>/dev/null | wc -l)
     printf "  %-15s: %d\n" "Images" "$image_count"
 
-    # Volumes
     local volume_count
     volume_count=$(docker volume ls --filter "$project_filter" -q 2>/dev/null | wc -l)
     printf "  %-15s: %d\n" "Volumes" "$volume_count"
 
-    # Networks
     local network_count
     network_count=$(docker network ls --filter "$project_filter" -q 2>/dev/null | wc -l)
     printf "  %-15s: %d\n" "Networks" "$network_count"
@@ -736,8 +722,11 @@ main() {
         clean)
             docker::$cmd "${remaining_args[@]}"
             ;;
-        ps|stats|df|inspect|ports|check-ports)
+        ps|stats|df|ports)
             docker::$cmd "${remaining_args[@]}"
+            ;;
+        check-ports)
+            docker::check_ports "${remaining_args[@]}"
             ;;
         logs|shell)
             docker::$cmd "${remaining_args[@]}"
@@ -749,10 +738,6 @@ main() {
                 load::environment >/dev/null || exit 1
                 compose::cmd config "${remaining_args[@]}"
             fi
-            ;;
-        images|exec|top|events)
-            load::environment >/dev/null || exit 1
-            compose::cmd "$cmd" "${remaining_args[@]}"
             ;;
         help|--help|-h)
             cat << "EOF"
@@ -776,7 +761,6 @@ Monitoring & Inspection:
   ps                    List containers
   stats                 Live container statistics
   df                    Disk usage analysis
-  inspect [SERVICE]     Inspect container details
   ports                 Show port mappings
   check-ports           Check port availability
 
@@ -791,13 +775,6 @@ Interactive:
 Validation:
   validate              Validate configuration
   config                Show raw configuration
-
-Direct Docker Compose Commands:
-  images                List images
-  exec SERVICE CMD      Execute command in container
-  top                   Display running processes
-  events                Real-time container events
-
 EOF
             ;;
         *)
