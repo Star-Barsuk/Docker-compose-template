@@ -471,11 +471,14 @@ docker::shell() {
 docker::ps() {
     log::header "Container Status"
 
-    if ! load::environment >/dev/null; then
+    if ! load::environment >/dev/null 2>&1; then
         return 1
     fi
 
-    compose::cmd ps "${@:-}"
+    if ! compose::cmd ps "$@"; then
+        log::error "Failed to get container status"
+        return 1
+    fi
 }
 
 docker::stats() {
