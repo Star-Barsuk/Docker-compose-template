@@ -169,12 +169,7 @@ export -f compose::cmd
 # -----------------------------------------------------------------------------
 # FLAG PARSING
 # -----------------------------------------------------------------------------
-
-# Parse command line flags
-# Sets global variables: FORCE, REMOVE_VOLUMES, NO_CACHE
-# Returns remaining arguments
 parse::flags() {
-    # Reset flags to defaults
     export FORCE="${FORCE:-0}"
     export REMOVE_VOLUMES="${REMOVE_VOLUMES:-0}"
     export NO_CACHE="${NO_CACHE:-0}"
