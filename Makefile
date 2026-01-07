@@ -27,3 +27,32 @@ help:
 	@$(MAKE) --no-print-directory _help_docker
 	@echo
 	@$(MAKE) --no-print-directory _help_app
+
+# -----------------------------------------------------------------------------
+# UTILITY TARGETS
+# -----------------------------------------------------------------------------
+.PHONY: status status-full
+
+status:
+	@echo "=== Project Status ==="
+	@$(MAKE) --no-print-directory env-status
+	@echo
+	@$(MAKE) --no-print-directory secrets-check
+	@echo
+	@$(MAKE) --no-print-directory ps
+	@echo
+	@$(MAKE) --no-print-directory ports
+
+status-full:
+	@echo "=== Full Project Status ==="
+	@$(MAKE) --no-print-directory env-status
+	@echo
+	@$(MAKE) --no-print-directory secrets-check
+	@echo
+	@$(MAKE) --no-print-directory ps
+	@echo
+	@$(MAKE) --no-print-directory ports
+	@echo
+	@$(MAKE) --no-print-directory check-ports
+	@echo
+	@$(MAKE) --no-print-directory df

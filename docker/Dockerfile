@@ -23,7 +23,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Create virtual environment as root first
+# Create virtual environment
 RUN uv venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" \
     VIRTUAL_ENV="/app/.venv"
@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=$UV_CACHE_DIR \
 #     chown -R 1000:1000 /app
 
 # Clean cache and fix permissions
-RUN uv cache clean --ci && \
+RUN uv cache clean && \
     find /app/.venv -name "*.pyc" -delete && \
     find /app/.venv -type d -name "__pycache__" -exec rm -rf {} + && \
     chmod -R go+rX /app/.venv
