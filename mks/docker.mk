@@ -2,7 +2,7 @@
 # DOCKER MAKEFILE MODULE
 # =============================================================================
 
-.PHONY: up stop down build clean nuke logs shell ps stats df ports check-ports inspect _help_docker
+.PHONY: up stop down build clean nuke logs shell ps stats df ports check-ports inspect validate config images exec top events _help_docker
 
 # -----------------------------------------------------------------------------
 # SERVICE MANAGEMENT
@@ -20,7 +20,8 @@ build:
 	@bash $(SCRIPTS_DIR)/docker.sh build \
 		$(and $(NO_CACHE),NO_CACHE=$(NO_CACHE)) \
 		$(and $(FORCE),FORCE=$(FORCE)) \
-		$(and $(PROGRESS),PROGRESS=$(PROGRESS))
+		$(and $(PROGRESS),PROGRESS=$(PROGRESS)) \
+		$(and $(APP_VERSION),APP_VERSION=$(APP_VERSION))
 
 # -----------------------------------------------------------------------------
 # CLEANUP
@@ -102,13 +103,13 @@ _help_docker:
 	@echo "  make stop              Stop stack (FORCE=1 for immediate)"
 	@echo "  make down              Remove stack (REMOVE_VOLUMES=1 for volumes, FORCE=1 to skip confirm)"
 	@echo "  make build             Build images (NO_CACHE=1 to disable cache, FORCE=1 to force, PROGRESS=plain/auto/quiet)"
+	@echo "                         APP_VERSION=<version> to set version"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean [TARGETS]   Clean specific resources"
 	@echo "                         TARGETS: containers, images, volumes, networks, cache, all"
 	@echo "                         Example: make clean containers images"
 	@echo "                         Use FORCE=1 for dangerous operations"
-	@echo "  make nuke              Remove ALL project resources (FORCE=1 to skip confirm)"
 	@echo ""
 	@echo "Monitoring & Inspection:"
 	@echo "  make ps                List containers (use ARGS for docker-compose ps args)"
@@ -119,7 +120,7 @@ _help_docker:
 	@echo "  make check-ports       Check port availability"
 	@echo ""
 	@echo "Interactive:"
-	@echo "  make logs [SERVICE]    View logs"
+	@echo "  make logs [ARGS]       View logs"
 	@echo "        FOLLOW=1         Follow log output"
 	@echo "        TAIL=N           Number of lines (default: 100)"
 	@echo "        SINCE=TIMESTAMP  Logs since timestamp"
@@ -131,17 +132,3 @@ _help_docker:
 	@echo "Validation & Configuration:"
 	@echo "  make validate          Validate docker-compose configuration"
 	@echo "  make config            Show raw docker-compose configuration"
-	@echo ""
-	@echo "Direct Docker Compose Commands:"
-	@echo "  make images            List images (use ARGS for additional args)"
-	@echo "  make exec SERVICE CMD  Execute command in container"
-	@echo "  make top               Display running processes"
-	@echo "  make events            Real-time container events"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make up"
-	@echo "  make logs FOLLOW=1 TAIL=50 ARGS='app-dev'"
-	@echo "  make clean containers images FORCE=1"
-	@echo "  make ports"
-	@echo "  make check-ports"
-	@echo "  REMOVE_VOLUMES=1 make down"
