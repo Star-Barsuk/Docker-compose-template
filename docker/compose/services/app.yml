@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
 
     # Entrypoint
-    entrypoint: ["/app/scripts/entrypoint.app.sh"]
+    entrypoint: ["/bin/sh", "/app/scripts/entrypoint.app.sh"]
 
     # Resource limits
     deploy:
