@@ -67,8 +67,8 @@ services:
       - internal
 
     # Health check
-    healthcheck:
-      <<: *healthcheck-defaults
+    # healthcheck:
+      # <<: *healthcheck-defaults
 
     # Labels for container management
     labels:

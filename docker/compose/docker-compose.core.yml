@@ -84,7 +84,8 @@ services:
     # Dependencies
     depends_on:
       db-dev:
-        condition: service_healthy
+        condition: service_started
+        # condition: service_healthy
     <<: *security-dev
     deploy:
       resources:
