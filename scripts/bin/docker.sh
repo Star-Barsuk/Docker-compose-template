@@ -128,31 +128,17 @@ docker::down() {
 
     local compose_args=("--remove-orphans")
 
-    if [[ "${REMOVE_VOLUMES:-}" == "1" ]]; then
+    if [[ "${REMOVE_VOLUMES:-0}" == "1" ]]; then
         compose_args+=("--volumes")
-        log::warn "This will remove ALL persistent data volumes!"
-
-        if [[ "${FORCE:-}" != "1" ]]; then
-            local confirm=""
-            read -rp "Type 'DELETE VOLUMES' to confirm: " confirm
-            if [[ "$confirm" != "DELETE VOLUMES" ]]; then
-                log::info "Operation cancelled."
-                return 0
-            fi
-        fi
+        log::warn "Removing all persistent data volumes."
     fi
 
     local running_count
     running_count=$(compose::cmd ps --services --filter "status=running" 2>/dev/null | wc -l)
 
     if [[ $running_count -gt 0 ]]; then
-        log::warn "Found $running_count running service(s)"
-        if [[ "${FORCE:-}" != "1" ]]; then
-            log::error "Cannot remove running services. Use 'stop' first or '--force' flag"
-            return 1
-        else
-            log::info "Force removing running services..."
-        fi
+        log::info "Stopping $running_count running service(s)..."
+        compose::cmd stop --timeout 1
     fi
 
     log::info "Removing services..."
@@ -320,11 +306,6 @@ docker::_clean_images() {
 docker::_clean_volumes() {
     log::info "Cleaning volumes..."
 
-    if [[ "${FORCE:-}" != "1" ]]; then
-        log::warn "Volume removal requires '--force' flag"
-        return 0
-    fi
-
     local volume_count
     volume_count=$(docker volume ls --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}" -q 2>/dev/null | wc -l)
 
@@ -337,11 +318,6 @@ docker::_clean_volumes() {
 
 docker::_clean_networks() {
     log::info "Cleaning networks..."
-
-    if [[ "${FORCE:-}" != "1" ]]; then
-        log::warn "Network removal requires '--force' flag"
-        return 0
-    fi
 
     local network_count
     network_count=$(docker network ls --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}" -q 2>/dev/null | wc -l)
