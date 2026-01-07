@@ -5,11 +5,11 @@ volumes:
   # PostgreSQL data volume
   pgdata:
     name: ${COMPOSE_VOLUME_PREFIX:-${COMPOSE_PROJECT_NAME}}_pgdata
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${VOLUME_DATA_DIR:-${PWD}/data/postgres}
+    # driver: local
+    # driver_opts:
+      # type: none
+      # o: bind
+      # device: ${VOLUME_DATA_DIR:-${PWD}/data/postgres}
 
   # PgAdmin data volume
   pgadmin_data:

@@ -7,3 +7,10 @@ networks:
     driver: ${COMPOSE_NETWORK_DRIVER:-bridge}
     name: ${COMPOSE_PROJECT_NAME}_internal
     attachable: true
+  # driver_opts:
+    # com.docker.network.bridge.name: ${COMPOSE_PROJECT_NAME}_br
+  # ipam:
+    # config:
+      # - subnet: ${NETWORK_SUBNET:-10.5.0.0/16}
+        # ip_range: ${NETWORK_IP_RANGE:-10.5.0.0/24}
+        # gateway: ${NETWORK_GATEWAY:-10.5.0.1}
