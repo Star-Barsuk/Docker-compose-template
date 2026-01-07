@@ -58,7 +58,7 @@ docker::up() {
         echo "$running_services" | sed 's/^/  /'
         echo ""
         echo "Use '--force' flag to restart, or 'stop' first."
-        return 1
+        return 0
     fi
 
     if ! docker::validate; then
@@ -570,7 +570,7 @@ docker::ports() {
     local host_ip
     host_ip=$(network::get_host_ip)
 
-    printf "%-25s %-30s %s\n" "SERVICE" "CONTAINER PORT" "HOST ACCESS"
+    printf "%-25s %-25s %s\n" "SERVICE" "CONTAINER PORT" "HOST ACCESS"
     echo "$(printf '=%.0s' {1..80})"
 
     local has_ports=0
@@ -584,6 +584,7 @@ docker::ports() {
 
             if [[ -n "$port_output" ]]; then
                 has_ports=1
+                declare -A seen_ports
                 while IFS= read -r port_line; do
                     [[ -z "$port_line" ]] && continue
 
@@ -591,16 +592,23 @@ docker::ports() {
                     container_port=$(echo "$port_line" | awk '{print $1}')
                     host_port=$(echo "$port_line" | awk '{print $3}')
 
-                    printf "%-25s %-30s %s\n" \
-                        "$service" \
-                        "$container_port" \
-                        "http://${host_ip}:${host_port##*:} (localhost:${host_port##*:})"
+                    local port_num="${host_port##*:}"
+                    local key="${container_port}-${port_num}"
+
+                    if [[ -z "${seen_ports[$key]:-}" ]]; then
+                        seen_ports[$key]=1
+                        printf "%-25s %-25s %s\n" \
+                            "$service" \
+                            "$container_port" \
+                            "http://${host_ip}:${port_num} (localhost:${port_num})"
+                    fi
                 done <<< "$port_output"
+                unset seen_ports
             else
-                printf "%-25s %-30s %s\n" "$service" "─" "No exposed ports"
+                printf "%-25s %-25s %s\n" "$service" "─" "No exposed ports"
             fi
         else
-            printf "%-25s %-30s %s\n" "$service" "─" "Not running"
+            printf "%-25s %-25s %s\n" "$service" "─" "Not running"
         fi
     done
 
@@ -663,7 +671,7 @@ docker::check_ports() {
     if [[ $busy_ports -eq 0 ]]; then
         log::success "All ports are available"
     else
-        log::warn "$busy_ports port(s) are busy"
+        log::info "$busy_ports port(s) are busy"
         echo "Check running services with: $0 ps"
     fi
 }
