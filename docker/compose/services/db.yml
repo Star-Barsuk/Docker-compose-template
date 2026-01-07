@@ -55,9 +55,9 @@ services:
       - pgdata:/var/lib/postgresql/data
 
     # Health check
-    # healthcheck:
-      # <<: *healthcheck-defaults
-      # test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-appuser} -d ${DB_NAME:-appdb} -t 5"]
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-appuser} -d ${DB_NAME:-appdb}"]
 
     # Labels for container management
     labels:
