@@ -2,36 +2,37 @@
 # APPLICATION MAKEFILE MODULE
 # =============================================================================
 
-.PHONY: run check-deps clean \
-        shell lint format check fix \
-        sync \
+.PHONY: app-run app-check-deps app-clean \
+        app-shell \
+	lint format check fix \
+        app-sync app-sync-dev \
 	app-help _help_app
 
 # -----------------------------------------------------------------------------
 # DEVELOPMENT ENVIRONMENT
 # -----------------------------------------------------------------------------
-check-deps:
+app-check-deps:
 	@bash $(SCRIPTS_DIR)/app.sh check-deps
 
-clean:
+app-clean:
 	@bash $(SCRIPTS_DIR)/app.sh clean
 
 # -----------------------------------------------------------------------------
 # UV-SPECIFIC COMMANDS
 # -----------------------------------------------------------------------------
-sync:
+app-sync:
 	@bash $(SCRIPTS_DIR)/app.sh uv-sync
 
-sync-dev:
+app-sync-dev:
 	@bash $(SCRIPTS_DIR)/app.sh uv-sync --dev
 
 # -----------------------------------------------------------------------------
 # APPLICATION
 # -----------------------------------------------------------------------------
-run:
+app-run:
 	@bash $(SCRIPTS_DIR)/app.sh run
 
-shell:
+app-shell:
 	@bash $(SCRIPTS_DIR)/app.sh shell
 
 # -----------------------------------------------------------------------------
@@ -59,16 +60,16 @@ _help_app:
 	@echo "Application commands:"
 	@echo ""
 	@echo "Development Environment:"
-	@echo "  make check-deps           Check dependency status"
-	@echo "  make clean                Clean build artifacts and caches"
+	@echo "  make app-check-deps           Check dependency status"
+	@echo "  make app-clean                Clean build artifacts and caches"
 	@echo ""
 	@echo "UV-Specific:"
-	@echo "  make sync              Sync dependencies with uv"
-	@echo "  make sync-dev          Sync with development dependencies"
+	@echo "  make app-sync              Sync dependencies with uv"
+	@echo "  make app-sync-dev          Sync with development dependencies"
 	@echo ""
 	@echo "Application:"
-	@echo "  make run                  Run application"
-	@echo "  make shell                Start Python REPL with project context"
+	@echo "  make app-run                  Run application"
+	@echo "  make app-shell                Start Python REPL with project context"
 	@echo ""
 	@echo "Code Quality (Ruff):"
 	@echo "  make lint                 Lint code (src/ scripts/)"
