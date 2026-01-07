@@ -1,6 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # DOCKER MANAGEMENT
+# Command-line interface for Docker Compose operations
 # =============================================================================
 
 set -euo pipefail
@@ -56,7 +57,7 @@ docker::up() {
         log::warn "Some services are already running:"
         echo "$running_services" | sed 's/^/  /'
         echo ""
-        echo "Use FORCE=1 to restart, or 'make stop' first."
+        echo "Use '--force' flag to restart, or 'stop' first."
         return 1
     fi
 
@@ -129,7 +130,7 @@ docker::down() {
 
     if [[ "${REMOVE_VOLUMES:-}" == "1" ]]; then
         compose_args+=("--volumes")
-        log::warn "⚠️  WARNING: This will remove ALL persistent data volumes!"
+        log::warn "This will remove ALL persistent data volumes!"
 
         if [[ "${FORCE:-}" != "1" ]]; then
             local confirm=""
@@ -147,7 +148,7 @@ docker::down() {
     if [[ $running_count -gt 0 ]]; then
         log::warn "Found $running_count running service(s)"
         if [[ "${FORCE:-}" != "1" ]]; then
-            log::error "Cannot remove running services. Use 'make stop' first or FORCE=1"
+            log::error "Cannot remove running services. Use 'stop' first or '--force' flag"
             return 1
         else
             log::info "Force removing running services..."
@@ -176,7 +177,7 @@ docker::build() {
         return 1
     fi
 
-    local build_args=("--pull" "--progress" "plain")
+    local build_args=("--progress" "plain")
     [[ -n "${APP_VERSION:-}" ]] && build_args+=("--build-arg" "APP_VERSION=${APP_VERSION}")
     [[ "${NO_CACHE:-}" == "1" ]] && build_args+=("--no-cache")
     [[ "${FORCE:-}" == "1" ]] && build_args+=("--force-rm")
@@ -233,7 +234,7 @@ docker::clean() {
 
     local targets=()
 
-    for arg in "${@}"; do
+    for arg in "$@"; do
         case "$arg" in
             containers) targets+=("containers") ;;
             images)     targets+=("images") ;;
@@ -253,7 +254,7 @@ docker::clean() {
 
     if [[ $running_count -gt 0 ]]; then
         log::error "Cannot clean while $running_count service(s) are running"
-        echo "Use 'make stop' first or specify FORCE=1 to stop them"
+        echo "Use 'stop' first or specify '--force' flag"
         return 1
     fi
 
@@ -320,7 +321,7 @@ docker::_clean_volumes() {
     log::info "Cleaning volumes..."
 
     if [[ "${FORCE:-}" != "1" ]]; then
-        log::warn "Volume removal requires FORCE=1"
+        log::warn "Volume removal requires '--force' flag"
         return 0
     fi
 
@@ -338,7 +339,7 @@ docker::_clean_networks() {
     log::info "Cleaning networks..."
 
     if [[ "${FORCE:-}" != "1" ]]; then
-        log::warn "Network removal requires FORCE=1"
+        log::warn "Network removal requires '--force' flag"
         return 0
     fi
 
@@ -373,37 +374,13 @@ docker::logs() {
     fi
 
     local services=()
-    local follow="${FOLLOW:-0}"
-    local tail="${TAIL:-100}"
-    local since="${SINCE:-}"
-    local until="${UNTIL:-}"
-    local timestamps="${TIMESTAMPS:-0}"
 
-    # Parse arguments
     local args=()
     for arg in "$@"; do
-        if [[ "$arg" == "--follow" ]] || [[ "$arg" == "-f" ]]; then
-            follow=1
-        elif [[ "$arg" =~ ^--tail= ]] || [[ "$arg" =~ ^-n ]]; then
-            tail="${arg#*=}"
-            [[ "$tail" == "$arg" ]] && tail="${arg#* }"
-        elif [[ "$arg" =~ ^--since= ]]; then
-            since="${arg#*=}"
-        elif [[ "$arg" =~ ^--until= ]]; then
-            until="${arg#*=}"
-        elif [[ "$arg" == "--timestamps" ]] || [[ "$arg" == "-t" ]]; then
-            timestamps=1
-        elif [[ "$arg" != "--" ]]; then
+        if [[ "$arg" != "--" ]]; then
             services+=("$arg")
         fi
     done
-
-    local log_args=()
-    [[ "$follow" == "1" ]] && log_args+=("--follow")
-    log_args+=("--tail" "$tail")
-    [[ -n "$since" ]] && log_args+=("--since" "$since")
-    [[ -n "$until" ]] && log_args+=("--until" "$until")
-    [[ "$timestamps" == "1" ]] && log_args+=("--timestamps")
 
     if [[ ${#services[@]} -eq 0 ]]; then
         services=($(compose::cmd ps --services 2>/dev/null || true))
@@ -424,7 +401,7 @@ docker::logs() {
             log::info "Logs for $service:"
             echo "$(printf '=%.0s' {1..60})"
 
-            if ! compose::cmd logs "${log_args[@]}" "$service"; then
+            if ! compose::cmd logs "$service"; then
                 log::warn "Failed to get logs for $service"
                 has_errors=1
             fi
@@ -539,7 +516,6 @@ docker::stats() {
         return 0
     fi
 
-    # Get container IDs
     local container_ids=()
     for service in "${services[@]}"; do
         local container_id
@@ -552,7 +528,6 @@ docker::stats() {
         return 0
     fi
 
-    # Show stats
     docker stats "${container_ids[@]}" --no-stream "${@:-}"
 }
 
@@ -673,10 +648,8 @@ docker::check_ports() {
         return 0
     fi
 
-    # Check common service ports from environment
     local ports_to_check=()
 
-    # Add ports from environment variables
     [[ -n "${APP_PORT_DEV:-}" ]] && ports_to_check+=("APP_PORT_DEV:$APP_PORT_DEV")
     [[ -n "${APP_PORT_PROD:-}" ]] && ports_to_check+=("APP_PORT_PROD:$APP_PORT_PROD")
     [[ -n "${DB_PORT_DEV:-}" ]] && ports_to_check+=("DB_PORT_DEV:$DB_PORT_DEV")
@@ -684,7 +657,6 @@ docker::check_ports() {
     [[ -n "${PGADMIN_PORT_DEV:-}" ]] && ports_to_check+=("PGADMIN_PORT_DEV:$PGADMIN_PORT_DEV")
     [[ -n "${PGADMIN_PORT_PROD:-}" ]] && ports_to_check+=("PGADMIN_PORT_PROD:$PGADMIN_PORT_PROD")
 
-    # Default ports if not specified
     [[ ${#ports_to_check[@]} -eq 0 ]] && ports_to_check=(
         "PostgreSQL:5432"
         "PgAdmin:8080"
@@ -747,11 +719,23 @@ docker::_list_resources() {
     printf "  %-15s: %d\n" "Networks" "$network_count"
 }
 
+# -----------------------------------------------------------------------------
+# MAIN DISPATCHER
+# -----------------------------------------------------------------------------
 main() {
-    local cmd="${1:-help}"
-    shift 2>/dev/null || true
+    local parsed_args
+    parsed_args=$(parse::flags "$@")
 
-    if [[ "$cmd" != "help" ]] && [[ "$cmd" != "--help" ]] && [[ "$cmd" != "-h" ]]; then
+    mapfile -t args_array <<< "$parsed_args"
+
+    local cmd="${args_array[0]:-help}"
+    local remaining_args=("${args_array[@]:1}")
+
+    if [[ -z "$cmd" ]] || [[ "$cmd" == "help" ]] || [[ "$cmd" == "--help" ]] || [[ "$cmd" == "-h" ]]; then
+        cmd="help"
+    fi
+
+    if [[ "$cmd" != "help" ]]; then
         if ! validate::docker_running; then
             return 1
         fi
@@ -759,46 +743,46 @@ main() {
 
     case "$cmd" in
         up|down|stop|build)
-            docker::$cmd "$@"
+            docker::$cmd "${remaining_args[@]}"
             ;;
-
-        clean|nuke)
-            docker::$cmd "$@"
+        clean)
+            docker::$cmd "${remaining_args[@]}"
             ;;
-
         ps|stats|df|inspect|ports|check-ports)
-            docker::$cmd "$@"
+            docker::$cmd "${remaining_args[@]}"
             ;;
-
         logs|shell)
-            docker::$cmd "$@"
+            docker::$cmd "${remaining_args[@]}"
             ;;
-
         validate|config)
             if [[ "$cmd" == "validate" ]]; then
-                docker::validate "$@"
+                docker::validate "${remaining_args[@]}"
             else
                 load::environment >/dev/null || exit 1
-                compose::cmd config "$@"
+                compose::cmd config "${remaining_args[@]}"
             fi
             ;;
-
         images|exec|top|events)
             load::environment >/dev/null || exit 1
-            compose::cmd "$cmd" "$@"
+            compose::cmd "$cmd" "${remaining_args[@]}"
             ;;
-
         help|--help|-h)
             cat << "EOF"
 Docker Management System
 
-Usage: $0 COMMAND [ARGS...]
+Usage: docker.sh [GLOBAL_FLAGS] COMMAND [COMMAND_ARGS...]
 
-Service Management:
+Global Flags (apply to all commands):
+  --force, -f           Skip confirmations and force actions
+  --volumes, -v         Remove volumes with 'down' command
+  --no-cache           Disable build cache
+  --help, -h           Show this help
+
+Service Management Commands:
   up                    Start services
   stop                  Stop services
-  down                  Remove services
-  build                 Build images
+  down                  Remove services (use --volumes to remove data volumes)
+  build                 Build images (use --no-cache to disable cache)
 
 Monitoring & Inspection:
   ps                    List containers
@@ -811,10 +795,9 @@ Monitoring & Inspection:
 Cleanup:
   clean [TARGETS...]    Clean specific resources
                         (containers, images, volumes, networks, cache, all)
-  nuke                  Remove ALL project resources (danger!)
 
 Interactive:
-  logs [SERVICE...]     View logs (supports: --follow, --tail=N, --since, --until)
+  logs [SERVICE...]     View logs
   shell [SERVICE]       Enter container shell
 
 Validation:
@@ -827,39 +810,11 @@ Direct Docker Compose Commands:
   top                   Display running processes
   events                Real-time container events
 
-Options (environment variables):
-  FORCE=1               Skip confirmations
-  FOLLOW=1              Follow log output
-  TAIL=N                Number of log lines (default: 100)
-  REMOVE_VOLUMES=1      Remove volumes with 'down'
-  NO_CACHE=1            Disable build cache
-  SINCE=TIMESTAMP       Logs since timestamp
-  UNTIL=TIMESTAMP       Logs until timestamp
-
-Examples:
-  $0 up
-  $0 logs app-dev --follow --tail=50
-  $0 shell db-dev
-  $0 clean images cache
-  $0 ports
-  $0 check-ports
-  FORCE=1 $0 nuke
-
-TODO/Future Features:
-  • Implement service scaling (docker::scale)
-  • Add health check monitoring
-  • Implement backup/restore functionality
-  • Add resource usage alerts
-  • Support for Docker Swarm mode
-  • Implement rolling updates
-  • Add configuration templates
-  • Support multiple compose files
 EOF
             ;;
-
         *)
             log::error "Unknown command: $cmd"
-            echo "Use '$0 help' for usage information"
+            echo "Use 'help' for usage information"
             return 1
             ;;
     esac
@@ -869,8 +824,5 @@ EOF
 # EXECUTION GUARD
 # -----------------------------------------------------------------------------
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # TODO: Add command line argument parsing
-    # TODO: Implement --verbose/--quiet flags
-    # TODO: Add --version flag
     main "$@"
 fi

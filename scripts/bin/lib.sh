@@ -1,6 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # CORE LIBRARY
+# Shared functions and utilities for all scripts
 # =============================================================================
 
 set -euo pipefail
@@ -164,3 +165,50 @@ compose::cmd() {
 }
 
 export -f compose::cmd
+
+# -----------------------------------------------------------------------------
+# FLAG PARSING
+# -----------------------------------------------------------------------------
+
+# Parse command line flags
+# Sets global variables: FORCE, REMOVE_VOLUMES, NO_CACHE
+# Returns remaining arguments
+parse::flags() {
+    # Reset flags to defaults
+    export FORCE="${FORCE:-0}"
+    export REMOVE_VOLUMES="${REMOVE_VOLUMES:-0}"
+    export NO_CACHE="${NO_CACHE:-0}"
+
+    local args=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force|-f)
+                export FORCE=1
+                shift
+                ;;
+            --volumes|-v)
+                export REMOVE_VOLUMES=1
+                shift
+                ;;
+            --no-cache)
+                export NO_CACHE=1
+                shift
+                ;;
+            --help|-h)
+                # This is handled by main function
+                args+=("$1")
+                shift
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # Return remaining arguments
+    printf '%s\n' "${args[@]}"
+}
+
+export -f parse::flags
