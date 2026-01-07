@@ -204,23 +204,20 @@ docker::build() {
 docker::_show_built_images() {
     log::info "Built images:"
 
-    local images
-    images=$(compose::cmd images --quiet 2>/dev/null | sort -u)
+    local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}"
+    local images=$(docker images --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null)
 
     if [[ -z "$images" ]]; then
-        echo "  No images found"
+        echo "  No images found for project $COMPOSE_PROJECT_NAME"
         return
     fi
 
-    while read -r image_id; do
-        local tags size created
-        tags=$(docker inspect --format='{{range .RepoTags}}{{.}} {{end}}' "$image_id" 2>/dev/null | xargs)
-        size=$(docker inspect --format='{{.Size}}' "$image_id" 2>/dev/null | numfmt --to=iec --format="%.2f" 2>/dev/null || echo "unknown")
-        created=$(docker inspect --format='{{.Created}}' "$image_id" 2>/dev/null | cut -d'T' -f1 2>/dev/null || echo "unknown")
+    while read -r image; do
+        local size created
+        size=$(docker inspect --format='{{.Size}}' "$image" 2>/dev/null | numfmt --to=iec --format="%.2f" 2>/dev/null || echo "unknown")
+        created=$(docker inspect --format='{{.Created}}' "$image" 2>/dev/null | cut -d'T' -f1 2>/dev/null || echo "unknown")
 
-        if [[ -n "$tags" ]]; then
-            printf "  %-60s %-10s %s\n" "$tags" "$size" "$created"
-        fi
+        printf "  %-60s %-10s %s\n" "$image" "$size" "$created"
     done <<< "$images"
 }
 
