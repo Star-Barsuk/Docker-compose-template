@@ -1,39 +1,28 @@
-from __future__ import annotations
-
-from datetime import datetime
-import os
-import platform
+"""
+Main application entry point.
+"""
+import asyncio
 import sys
-import time
+
+from src.application import Application
 
 
-def main() -> None:
-    print("=" * 50)
-    print("🚀 Database Module — Standalone Runner")
-    print("=" * 50)
-    print(f"🕒 Started at: {datetime.now().isoformat()}")
-    print(f"🐍 Python: {sys.version.split()[0]} ({platform.python_implementation()})")
-    print(f"💻 OS: {platform.system()} {platform.release()} ({platform.machine()})")
-    print(f"📂 Working dir: {os.getcwd()}")
-    print(f"📁 Script location: {os.path.abspath(__file__)}")
-    print("-" * 50)
+async def main_async():
+    """Async entry point."""
+    app = Application()
+    await app.run()
 
+
+def main():
+    """Main entry point."""
     try:
-        print("🟢 Service is running... (Press Ctrl+C to stop)")
-        counter = 0
-        while True:
-            counter += 1
-            print(f"   [heartbeat] tick #{counter} — {time.strftime('%H:%M:%S')}")
-            time.sleep(5)
-
+        asyncio.run(main_async())
     except KeyboardInterrupt:
-        print("\n🛑 Received SIGINT (Ctrl+C). Shutting down gracefully...")
-    except Exception as e:
-        print(f"💥 Unexpected error: {e}", file=sys.stderr)
-        sys.exit(1)
-    finally:
-        print("✅ Goodbye! Have a great day 🌟")
+        print("\n👋 Application terminated by user")
         sys.exit(0)
+    except Exception as e:
+        print(f"💥 Application failed: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
