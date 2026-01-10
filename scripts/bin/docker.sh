@@ -1,18 +1,16 @@
 #!/bin/bash
 # =============================================================================
-# DOCKER MANAGEMENT
-# Command-line interface for Docker Compose operations
+# DOCKER MANAGEMENT SCRIPT
 # =============================================================================
 
 set -euo pipefail
 
-# Initialize paths
+# --- Source shared library ---
 source "$(dirname "$0")/init.sh"
 
-# -----------------------------------------------------------------------------
-# CONFIGURATION VALIDATION
-# -----------------------------------------------------------------------------
+# --- Configuration Validation ---
 docker::validate() {
+    # Validate Docker Compose configuration.
     log::header "Validating Configuration"
 
     if ! load::environment >/dev/null; then
@@ -40,10 +38,9 @@ docker::validate() {
     fi
 }
 
-# -----------------------------------------------------------------------------
-# SERVICE MANAGEMENT
-# -----------------------------------------------------------------------------
+# --- Service Management ---
 docker::up() {
+    # Start Docker services.
     log::header "Starting Services"
 
     if ! load::environment >/dev/null; then
@@ -68,7 +65,6 @@ docker::up() {
 
     log::info "Starting services..."
 
-    # local compose_args=("--detach" "--wait" "--wait-timeout" "120")
     local compose_args=("--detach")
     [[ "${FORCE:-}" == "1" ]] && compose_args+=("--force-recreate")
 
@@ -90,6 +86,7 @@ docker::up() {
 }
 
 docker::stop() {
+    # Stop Docker services.
     log::header "Stopping Services"
 
     if ! load::environment >/dev/null; then
@@ -121,7 +118,8 @@ docker::stop() {
 }
 
 docker::down() {
-    log::header "Remaining Services"
+    # Remove Docker services.
+    log::header "Removing Services"
 
     if ! load::environment >/dev/null; then
         return 1
@@ -148,10 +146,9 @@ docker::down() {
     fi
 }
 
-# -----------------------------------------------------------------------------
-# BUILD
-# -----------------------------------------------------------------------------
+# --- Build ---
 docker::build() {
+    # Build Docker images.
     log::header "Building Images"
 
     if ! load::environment >/dev/null; then
@@ -184,6 +181,7 @@ docker::build() {
 }
 
 docker::_show_built_images() {
+    # Display built Docker images.
     log::info "Built images:"
 
     local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}"
@@ -203,10 +201,9 @@ docker::_show_built_images() {
     done <<< "$images"
 }
 
-# -----------------------------------------------------------------------------
-# CLEANUP
-# -----------------------------------------------------------------------------
+# --- Cleanup ---
 docker::clean() {
+    # Clean Docker resources.
     log::header "Cleaning Docker Resources"
 
     if ! load::environment >/dev/null; then
@@ -254,6 +251,7 @@ docker::clean() {
 }
 
 docker::_clean_containers() {
+    # Clean Docker containers.
     log::info "Cleaning containers..."
 
     local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}"
@@ -278,6 +276,7 @@ docker::_clean_containers() {
 }
 
 docker::_clean_images() {
+    # Clean Docker images.
     log::info "Cleaning images..."
 
     local dangling_count
@@ -302,6 +301,7 @@ docker::_clean_images() {
 }
 
 docker::_clean_volumes() {
+    # Clean Docker volumes.
     log::info "Cleaning volumes..."
 
     local volume_count
@@ -315,6 +315,7 @@ docker::_clean_volumes() {
 }
 
 docker::_clean_networks() {
+    # Clean Docker networks.
     log::info "Cleaning networks..."
 
     local network_count
@@ -328,6 +329,7 @@ docker::_clean_networks() {
 }
 
 docker::_clean_cache() {
+    # Clean Docker build cache.
     log::info "Cleaning build cache..."
 
     if docker buildx ls >/dev/null 2>&1; then
@@ -337,10 +339,9 @@ docker::_clean_cache() {
     docker system prune --force 2>/dev/null || true
 }
 
-# -----------------------------------------------------------------------------
-# LOGS
-# -----------------------------------------------------------------------------
+# --- Logs ---
 docker::logs() {
+    # Display container logs.
     log::header "Container Logs"
 
     if ! load::environment >/dev/null; then
@@ -403,10 +404,9 @@ docker::logs() {
     return $has_errors
 }
 
-# -----------------------------------------------------------------------------
-# SHELL
-# -----------------------------------------------------------------------------
+# --- Shell ---
 docker::shell() {
+    # Enter a container shell.
     log::header "Container Shell"
 
     if ! load::environment >/dev/null; then
@@ -449,10 +449,10 @@ docker::shell() {
         docker exec -it "$container_id" sh
     fi
 }
-# -----------------------------------------------------------------------------
-# MONITORING
-# -----------------------------------------------------------------------------
+
+# --- Monitoring ---
 docker::ps() {
+    # Display container status.
     log::header "Container Status"
 
     if ! load::environment >/dev/null 2>&1; then
@@ -466,6 +466,7 @@ docker::ps() {
 }
 
 docker::stats() {
+    # Display container statistics.
     log::header "Container Statistics"
 
     if ! load::environment >/dev/null; then
@@ -511,6 +512,7 @@ docker::stats() {
 }
 
 docker::df() {
+    # Display Docker disk usage.
     log::header "Docker Disk Usage"
 
     if ! load::environment >/dev/null 2>&1; then
@@ -543,6 +545,7 @@ docker::df() {
 }
 
 docker::ports() {
+    # Display service port mappings.
     log::header "Service Port Mapping"
 
     if ! load::environment >/dev/null; then
@@ -612,6 +615,7 @@ docker::ports() {
 }
 
 docker::check_ports() {
+    # Check port availability.
     log::header "Port Availability Check"
 
     if ! load::environment >/dev/null; then
@@ -666,10 +670,9 @@ docker::check_ports() {
     fi
 }
 
-# -----------------------------------------------------------------------------
-# RESOURCE LISTING
-# -----------------------------------------------------------------------------
+# --- Resource Listing ---
 docker::_list_resources() {
+    # List Docker resources.
     local header="${1:-Project Resources}"
 
     log::info "$header"
@@ -693,9 +696,47 @@ docker::_list_resources() {
     printf "  %-15s: %d\n" "Networks" "$network_count"
 }
 
-# -----------------------------------------------------------------------------
-# MAIN DISPATCHER
-# -----------------------------------------------------------------------------
+# --- Help ---
+docker::help() {
+    # Display help information.
+    cat << "EOF"
+Docker Management System
+
+Usage: docker.sh [GLOBAL_FLAGS] COMMAND [COMMAND_ARGS...]
+
+Global Flags (apply to all commands):
+  --force, -f           Skip confirmations and force actions
+  --volumes, -v         Remove volumes with 'down' command
+  --no-cache           Disable build cache
+  --help, -h           Show this help
+
+Service Management Commands:
+  up                    Start services
+  stop                  Stop services
+  down                  Remove services (use --volumes to remove data volumes)
+  build                 Build images (use --no-cache to disable cache)
+
+Monitoring & Inspection:
+  ps                    List containers
+  stats                 Live container statistics
+  df                    Disk usage analysis
+  ports                 Show port mappings
+  check-ports           Check port availability
+
+Cleanup:
+  clean [TARGETS...]    Clean specific resources
+                        (containers, images, volumes, networks, cache, all)
+
+Interactive:
+  logs [SERVICE...]     View logs
+  shell [SERVICE]       Enter container shell
+
+Validation:
+  validate              Validate configuration
+EOF
+}
+
+# --- Main Dispatcher ---
 main() {
     local parsed_args
     parsed_args=$(parse::flags "$@")
@@ -731,51 +772,11 @@ main() {
         logs|shell)
             docker::$cmd "${remaining_args[@]}"
             ;;
-        validate|config)
-            if [[ "$cmd" == "validate" ]]; then
-                docker::validate "${remaining_args[@]}"
-            else
-                load::environment >/dev/null || exit 1
-                compose::cmd config "${remaining_args[@]}"
-            fi
+        validate)
+            docker::validate "${remaining_args[@]}"
             ;;
         help|--help|-h)
-            cat << "EOF"
-Docker Management System
-
-Usage: docker.sh [GLOBAL_FLAGS] COMMAND [COMMAND_ARGS...]
-
-Global Flags (apply to all commands):
-  --force, -f           Skip confirmations and force actions
-  --volumes, -v         Remove volumes with 'down' command
-  --no-cache           Disable build cache
-  --help, -h           Show this help
-
-Service Management Commands:
-  up                    Start services
-  stop                  Stop services
-  down                  Remove services (use --volumes to remove data volumes)
-  build                 Build images (use --no-cache to disable cache)
-
-Monitoring & Inspection:
-  ps                    List containers
-  stats                 Live container statistics
-  df                    Disk usage analysis
-  ports                 Show port mappings
-  check-ports           Check port availability
-
-Cleanup:
-  clean [TARGETS...]    Clean specific resources
-                        (containers, images, volumes, networks, cache, all)
-
-Interactive:
-  logs [SERVICE...]     View logs
-  shell [SERVICE]       Enter container shell
-
-Validation:
-  validate              Validate configuration
-  config                Show raw configuration
-EOF
+            docker::help
             ;;
         *)
             log::error "Unknown command: $cmd"
@@ -785,9 +786,7 @@ EOF
     esac
 }
 
-# -----------------------------------------------------------------------------
-# EXECUTION GUARD
-# -----------------------------------------------------------------------------
+# --- Execute Main ---
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

@@ -1,14 +1,11 @@
 #!/bin/bash
 # =============================================================================
 # CORE LIBRARY
-# Shared functions and utilities for all scripts
 # =============================================================================
 
 set -euo pipefail
 
-# -----------------------------------------------------------------------------
-# COLOR OUTPUT
-# -----------------------------------------------------------------------------
+# --- Color Output ---
 if [[ -t 1 ]]; then
     COLOR_RESET=$'\033[0m'
     COLOR_RED=$'\033[0;31m'
@@ -25,9 +22,7 @@ fi
 
 export COLOR_RESET COLOR_RED COLOR_GREEN COLOR_YELLOW COLOR_BLUE COLOR_CYAN COLOR_GRAY COLOR_BOLD
 
-# -----------------------------------------------------------------------------
-# LOGGING FUNCTIONS
-# -----------------------------------------------------------------------------
+# --- Logging Functions ---
 log::header()   { printf "${COLOR_CYAN}==>${COLOR_RESET} ${COLOR_BOLD}%s${COLOR_RESET}\n" "$1"; }
 log::info()     { printf "${COLOR_BLUE}[INFO]${COLOR_RESET} %s\n" "$1"; }
 log::success()  { printf "${COLOR_GREEN}[OK]${COLOR_RESET} %s\n" "$1"; }
@@ -38,9 +33,7 @@ log::fatal()    { log::error "$1"; exit 1; }
 
 export -f log::header log::info log::success log::warn log::error log::debug log::fatal
 
-# -----------------------------------------------------------------------------
-# PATH HELPERS
-# -----------------------------------------------------------------------------
+# --- Path Helpers ---
 root::path()    { echo "$PROJECT_ROOT"; }
 compose::path() { echo "$COMPOSE_DIR"; }
 secrets::path() { echo "$SECRETS_DIR"; }
@@ -57,9 +50,7 @@ relpath() {
 
 export -f root::path compose::path secrets::path envs::path active_env_file relpath
 
-# -----------------------------------------------------------------------------
-# VALIDATION FUNCTIONS
-# -----------------------------------------------------------------------------
+# --- Validation Functions ---
 validate::file_exists() {
     [[ -f "${1:-}" ]] || { log::error "File not found: ${1:-}"; return 1; }
 }
@@ -101,9 +92,7 @@ validate::active_env() {
 export -f validate::file_exists validate::dir_exists validate::command_exists \
           validate::docker_running validate::active_env
 
-# -----------------------------------------------------------------------------
-# ENVIRONMENT LOADING
-# -----------------------------------------------------------------------------
+# --- Environment Loading ---
 load::environment() {
     local env_name
     env_name=$(validate::active_env) || return 1
@@ -113,7 +102,7 @@ load::environment() {
     if [[ -f "$env_file" ]]; then
         while IFS='=' read -r key value; do
             [[ "$key" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "${key//[[:space:]]/}" ]] && continue
+            [[ -z "${key//[[:space:]]}" ]] && continue
 
             key="${key%%[[:space:]]*}"
             [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
@@ -139,9 +128,7 @@ load::environment() {
 
 export -f load::environment
 
-# -----------------------------------------------------------------------------
-# DOCKER COMPOSE HELPER
-# -----------------------------------------------------------------------------
+# --- Docker Compose Helper ---
 compose::cmd() {
     local env_name
     env_name=$(load::environment) || return 1
@@ -166,9 +153,7 @@ compose::cmd() {
 
 export -f compose::cmd
 
-# -----------------------------------------------------------------------------
-# FLAG PARSING
-# -----------------------------------------------------------------------------
+# --- Flag Parsing ---
 parse::flags() {
     export FORCE="${FORCE:-0}"
     export REMOVE_VOLUMES="${REMOVE_VOLUMES:-0}"
@@ -208,9 +193,7 @@ parse::flags() {
 
 export -f parse::flags
 
-# -----------------------------------------------------------------------------
-# NETWORK FUNCTIONS
-# -----------------------------------------------------------------------------
+# --- Network Functions ---
 network::get_host_ip() {
     local ip
 

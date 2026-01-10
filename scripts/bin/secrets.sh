@@ -1,25 +1,22 @@
 #!/bin/bash
 # =============================================================================
-# SECRETS MANAGEMENT
+# SECRETS MANAGEMENT SCRIPT
 # =============================================================================
 
 set -euo pipefail
 
-# Initialize paths and source lib.sh
+# --- Source shared library ---
 source "$(dirname "$0")/init.sh"
 
-# -----------------------------------------------------------------------------
-# CONSTANTS
-# -----------------------------------------------------------------------------
+# --- Constants ---
 readonly REQUIRED_SECRETS=(
     "db_password.txt"
     "pgadmin_password.txt"
 )
 
-# -----------------------------------------------------------------------------
-# UTILITY FUNCTIONS
-# -----------------------------------------------------------------------------
+# --- Utility Functions ---
 secrets::is_secure() {
+    # Check if a secret file is secure.
     local file="$1"
 
     [[ -f "$file" ]] || return 1
@@ -36,6 +33,7 @@ secrets::is_secure() {
 }
 
 secrets::generate_one() {
+    # Generate a single secret.
     local file="$1"
 
     mkdir -p "$(dirname "$file")"
@@ -63,10 +61,9 @@ secrets::generate_one() {
     fi
 }
 
-# -----------------------------------------------------------------------------
-# COMMANDS
-# -----------------------------------------------------------------------------
+# --- Commands ---
 secrets::check() {
+    # Check the security of all secrets.
     log::header "Checking Secrets"
 
     validate::dir_exists "$SECRETS_DIR" || return 1
@@ -98,6 +95,7 @@ secrets::check() {
 }
 
 secrets::list() {
+    # List all secrets with their status.
     log::header "Secrets List"
 
     validate::dir_exists "$SECRETS_DIR" || return 1
@@ -142,6 +140,7 @@ secrets::list() {
 }
 
 secrets::generate() {
+    # Generate missing or insecure secrets.
     log::header "Generating Secrets"
 
     validate::dir_exists "$SECRETS_DIR" || return 1
@@ -198,18 +197,10 @@ secrets::generate() {
     return $((failed > 0))
 }
 
-# -----------------------------------------------------------------------------
-# MAIN DISPATCHER
-# -----------------------------------------------------------------------------
-main() {
-    local cmd="${1:-help}"
-
-    case "$cmd" in
-        check|list|generate)
-            secrets::$cmd
-            ;;
-        help|--help|-h)
-            cat << EOF
+# --- Help ---
+secrets::help() {
+    # Display help information.
+    cat << "EOF"
 Secrets Management
 
 Usage: $0 COMMAND
@@ -228,6 +219,18 @@ Examples:
   $0 generate
   FORCE=1 $0 generate
 EOF
+}
+
+# --- Main Dispatcher ---
+main() {
+    local cmd="${1:-help}"
+
+    case "$cmd" in
+        check|list|generate)
+            secrets::$cmd
+            ;;
+        help|--help|-h)
+            secrets::help
             ;;
         *)
             log::error "Unknown command: $cmd"
@@ -237,7 +240,7 @@ EOF
     esac
 }
 
-# Only run main if script is executed directly
+# --- Execute Main ---
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

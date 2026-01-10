@@ -460,20 +460,17 @@ main() {
         clean)
             app::clean
             ;;
-
         uv-sync)
             local with_dev=0
             [[ "${2:-}" == "--dev" ]] && with_dev=1
             app::uv::sync "$with_dev"
             ;;
-
         run)
             app::run
             ;;
         shell)
             app::shell
             ;;
-
         lint)
             shift
             app::lint "$@"
@@ -490,11 +487,9 @@ main() {
             shift
             app::fix "$@"
             ;;
-
         help|--help|-h)
             app::help
             ;;
-
         *)
             log::error "Unknown command: $command"
             echo ""

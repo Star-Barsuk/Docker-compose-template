@@ -1,33 +1,33 @@
 #!/bin/bash
 # =============================================================================
-# ENVIRONMENT MANAGEMENT
+# ENVIRONMENT MANAGEMENT SCRIPT
 # =============================================================================
 
 set -euo pipefail
 
-# Initialize paths and source lib.sh
+# --- Source shared library ---
 source "$(dirname "$0")/init.sh"
 
-# -----------------------------------------------------------------------------
-# CORE FUNCTIONS
-# -----------------------------------------------------------------------------
+# --- Core Functions ---
 env::get_active() {
+    # Get the active environment name.
     [[ -f "$ACTIVE_ENV_FILE" ]] && head -1 "$ACTIVE_ENV_FILE" 2>/dev/null || echo ""
 }
 
 env::get_file() {
+    # Get the path to an environment file.
     echo "$ENVS_DIR/.env.$1"
 }
 
 env::list_files() {
+    # List all environment files.
     find "$ENVS_DIR" -maxdepth 1 -name ".env.*" ! -name "*.dist" ! -name "*.example" \
          -type f 2>/dev/null | sort
 }
 
-# -----------------------------------------------------------------------------
-# LIST ENVIRONMENTS
-# -----------------------------------------------------------------------------
+# --- List Environments ---
 env::list() {
+    # List all available environments.
     log::header "Available Environments"
 
     local envs=()
@@ -82,10 +82,9 @@ env::list() {
     log::info "Total environments: ${#envs[@]}"
 }
 
-# -----------------------------------------------------------------------------
-# SELECT ENVIRONMENT
-# -----------------------------------------------------------------------------
+# --- Select Environment ---
 env::select() {
+    # Interactively select an environment.
     local envs=()
     while IFS= read -r file; do
         [[ -f "$file" ]] || continue
@@ -131,10 +130,9 @@ env::select() {
     done
 }
 
-# -----------------------------------------------------------------------------
-# SHOW ENVIRONMENT STATUS
-# -----------------------------------------------------------------------------
+# --- Show Environment Status ---
 env::status() {
+    # Show the status of the current environment.
     local env_name
     env_name=$(env::get_active)
 
@@ -205,10 +203,9 @@ env::status() {
     return 0
 }
 
-# -----------------------------------------------------------------------------
-# VALIDATE ENVIRONMENT
-# -----------------------------------------------------------------------------
+# --- Validate Environment ---
 env::validate() {
+    # Validate the current environment.
     local env_name
     env_name=$(env::get_active)
 
@@ -239,17 +236,32 @@ env::validate() {
     fi
 
     if load::environment >/dev/null 2>&1; then
-        log::success "✅ Environment loads successfully"
+        log::success "Environment loads successfully"
         return 0
     else
-        log::error "❌ Failed to load environment"
+        log::error "Failed to load environment"
         return 1
     fi
 }
 
-# -----------------------------------------------------------------------------
-# MAIN DISPATCHER
-# -----------------------------------------------------------------------------
+# --- Help ---
+env::help() {
+    # Display help information.
+    cat << "EOF"
+Environment Management
+
+Usage: $0 COMMAND
+
+Commands:
+  list      List all available environments
+  select    Interactively select environment
+  status    Show current environment status
+  validate  Validate current environment
+  load      Load current environment (internal use)
+EOF
+}
+
+# --- Main Dispatcher ---
 main() {
     local cmd="${1:-help}"
 
@@ -262,23 +274,7 @@ main() {
             load::environment || exit 1
             ;;
         help|--help|-h)
-            cat << EOF
-Environment Management
-
-Usage: $0 COMMAND
-
-Commands:
-  list      List all available environments
-  select    Interactively select environment
-  status    Show current environment status
-  validate  Validate current environment
-  load      Load current environment (internal use)
-
-Examples:
-  $0 list
-  $0 select
-  $0 status
-EOF
+            env::help
             ;;
         *)
             log::error "Unknown command: $cmd"
@@ -288,7 +284,7 @@ EOF
     esac
 }
 
-# Only run main if script is executed directly
+# --- Execute Main ---
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

@@ -5,9 +5,7 @@
 
 set -euo pipefail
 
-# -----------------------------------------------------------------------------
-# COLOR OUTPUT
-# -----------------------------------------------------------------------------
+# --- Color Output ---
 if [[ -t 1 ]]; then
     COLOR_RESET=$'\033[0m'
     COLOR_RED=$'\033[0;31m'
@@ -28,18 +26,18 @@ log::warn()     { printf "${COLOR_YELLOW}[WARN]${COLOR_RESET} %s\n" "$1" >&2; }
 log::error()    { printf "${COLOR_RED}[ERROR]${COLOR_RESET} %s\n" "$1" >&2; }
 
 find_example_envs() {
+    # Find all .env.*.example files in the project.
     find . -name ".env.*.example" -type f 2>/dev/null | \
         grep -v node_modules | grep -v .git | sort
 }
 
 remove_example_suffix() {
+    # Remove the .example suffix from a filename.
     local filename="$1"
     echo "${filename%.example}"
 }
 
-# -----------------------------------------------------------------------------
-# MAIN SCRIPT
-# -----------------------------------------------------------------------------
+# --- Main Script ---
 main() {
     log::header "PROJECT SETUP SCRIPT"
     echo "This script will:"
@@ -169,7 +167,7 @@ EOF
     fi
 
     # Step 3: Set default active environment
-	echo ""
+    echo ""
     log::header "Step 3: Setting up default environment"
 
     if [[ -f ".active-env" ]]; then
@@ -242,5 +240,5 @@ EOF
     echo ""
 }
 
-# Run the main function
+# --- Execute Main ---
 main "$@"
