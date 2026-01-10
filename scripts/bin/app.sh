@@ -123,10 +123,12 @@ app::deps::check() {
         missing=$((missing + 1))
     fi
 
-    if command -v ruff >/dev/null 2>&1; then
-        log::success "ruff: $(ruff --version 2>/dev/null | head -1 || echo 'found')"
+    # Check for ruff in venv
+    if [[ -f "$(app::venv::path)/bin/ruff" ]]; then
+        log::success "ruff: $("$(app::venv::path)/bin/ruff" --version 2>/dev/null | head -1)"
     else
-        log::warn "ruff not found (install with: make app-sync-dev)"
+        log::warn "ruff not found in venv (install with: make app-sync-dev)"
+        missing=$((missing + 1))
     fi
 
     echo ""
@@ -168,9 +170,11 @@ app::uv::sync() {
     if uv "${uv_args[@]}"; then
         log::success "Dependencies synced successfully"
 
-        echo ""
-        log::info "Installed packages:"
-        uv pip list | grep -E "(Package|----|ruff|my-awesome-app)" | head -10
+        log::info "Package list:"
+        uv tree | head -15 | sed 's/^/    /'
+
+        local total_packages
+        total_packages=$(uv pip list | tail -n +3 | wc -l)
     else
         log::error "Failed to sync dependencies"
         return 1
@@ -223,17 +227,33 @@ app::shell() {
     cd "$PROJECT_ROOT" && python
 }
 
+# --- Ruff Utilities ---
+app::ruff::path() {
+    # Get path to ruff executable in venv
+    echo "$(app::venv::path)/bin/ruff"
+}
+
+app::ruff::check_available() {
+    # Check if ruff is available in venv
+    if [[ -f "$(app::ruff::path)" ]]; then
+        return 0
+    else
+        log::error "ruff not found in virtual environment"
+        echo "Install development dependencies with: make app-sync-dev"
+        return 1
+    fi
+}
+
 # --- Code Quality Tools ---
 app::lint() {
     # Lint code using Ruff.
     log::header "Linting Code (Ruff)"
 
-    if ! command -v ruff >/dev/null 2>&1; then
-        log::error "ruff not found in PATH"
-        echo "Install with: make app-sync-dev"
+    if ! app::ruff::check_available; then
         return 1
     fi
 
+    local ruff_path="$(app::ruff::path)"
     local args=("check" "--config" "$RUFF_CONFIG")
 
     if [[ $# -gt 0 ]]; then
@@ -245,7 +265,7 @@ app::lint() {
     log::info "Running ruff ${args[*]}"
     echo ""
 
-    if ruff "${args[@]}"; then
+    if "$ruff_path" "${args[@]}"; then
         echo ""
         log::success "Linting passed!"
     else
@@ -259,12 +279,11 @@ app::format() {
     # Format code using Ruff.
     log::header "Formatting Code (Ruff)"
 
-    if ! command -v ruff >/dev/null 2>&1; then
-        log::error "ruff not found in PATH"
-        echo "Install with: make app-sync-dev"
+    if ! app::ruff::check_available; then
         return 1
     fi
 
+    local ruff_path="$(app::ruff::path)"
     local args=("format" "--config" "$RUFF_CONFIG")
 
     if [[ $# -gt 0 ]]; then
@@ -276,7 +295,7 @@ app::format() {
     log::info "Running ruff ${args[*]}"
     echo ""
 
-    if ruff "${args[@]}"; then
+    if "$ruff_path" "${args[@]}"; then
         echo ""
         log::success "Formatting completed!"
     else
@@ -290,14 +309,14 @@ app::check() {
     # Run comprehensive code checks.
     log::header "Checking Code (Ruff comprehensive)"
 
-    if ! command -v ruff >/dev/null 2>&1; then
-        log::error "ruff not found in PATH"
-        echo "Install with: make app-sync-dev"
+    if ! app::ruff::check_available; then
         return 1
     fi
 
+    local ruff_path="$(app::ruff::path)"
+
     log::info "1. Checking formatting..."
-    if ruff format --check --config "$RUFF_CONFIG" src/ scripts/ 2>/dev/null; then
+    if "$ruff_path" format --check --config "$RUFF_CONFIG" src/ scripts/ 2>/dev/null; then
         log::success "  Formatting is correct"
     else
         log::warn "  Formatting issues found"
@@ -307,7 +326,7 @@ app::check() {
 
     log::info "2. Running linter..."
     local lint_output
-    lint_output=$(ruff check --config "$RUFF_CONFIG" src/ scripts/ 2>&1)
+    lint_output=$("$ruff_path" check --config "$RUFF_CONFIG" src/ scripts/ 2>&1)
     local lint_status=$?
 
     if [[ $lint_status -eq 0 ]]; then
@@ -332,11 +351,11 @@ app::fix() {
     # Auto-fix code issues.
     log::header "Fixing Code Issues (Ruff)"
 
-    if ! command -v ruff >/dev/null 2>&1; then
-        log::error "ruff not found in PATH"
-        echo "Install with: make app-sync-dev"
+    if ! app::ruff::check_available; then
         return 1
     fi
+
+    local ruff_path="$(app::ruff::path)"
 
     log::info "1. Formatting code..."
     if app::format "$@" >/dev/null 2>&1; then
@@ -356,7 +375,7 @@ app::fix() {
         args+=("src/" "scripts/")
     fi
 
-    if ruff "${args[@]}"; then
+    if "$ruff_path" "${args[@]}"; then
         log::success "  Auto-fixes applied"
     else
         log::warn "  Some issues require manual fixing"
