@@ -1,18 +1,22 @@
 #!/bin/bash
+# =============================================================================
+# APPLICATION MANAGEMENT SCRIPT
+# =============================================================================
+
+set -euo pipefail
+
+# --- Source shared library ---
 source "$(dirname "$0")/lib.sh"
 
-# -----------------------------------------------------------------------------
-# PATHS & CONFIG
-# -----------------------------------------------------------------------------
+# --- Constants ---
 readonly PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 readonly PYTHON_MODULE="src.main"
 readonly REQUIREMENTS_FILE="pyproject.toml"
 readonly RUFF_CONFIG="pyproject.toml"
 
-# -----------------------------------------------------------------------------
-# TOOL DETECTION
-# -----------------------------------------------------------------------------
+# --- Tool Detection ---
 app::detect_tools() {
+    # Check if required tools (python3, pip, uv) are installed.
     local tools=("python3" "pip" "uv")
     local missing=()
 
@@ -31,18 +35,19 @@ app::detect_tools() {
     return 0
 }
 
-# -----------------------------------------------------------------------------
-# VENV MANAGEMENT
-# -----------------------------------------------------------------------------
+# --- Virtual Environment Management ---
 app::venv::path() {
+    # Return the path to the virtual environment.
     echo "$PROJECT_ROOT/.venv"
 }
 
 app::venv::exists() {
+    # Check if the virtual environment exists.
     [[ -d "$(app::venv::path)" ]] && [[ -f "$(app::venv::path)/bin/activate" ]]
 }
 
 app::venv::activate() {
+    # Activate the virtual environment.
     if app::venv::exists; then
         source "$(app::venv::path)/bin/activate"
         return 0
@@ -52,6 +57,7 @@ app::venv::activate() {
 }
 
 app::venv::create() {
+    # Create a new virtual environment.
     local venv_path="$(app::venv::path)"
 
     if app::venv::exists; then
@@ -83,20 +89,19 @@ app::venv::create() {
         log::success "Virtual environment created at $venv_path"
         return 0
     else
-        log::error "Failed to create virtual environment"
+        log::error "Failed to create virtual environment."
         return 1
     fi
 }
 
-# -----------------------------------------------------------------------------
-# DEPENDENCY MANAGEMENT
-# -----------------------------------------------------------------------------
+# --- Dependency Management ---
 app::deps::check() {
+    # Check if all dependencies are installed.
     log::header "Checking dependencies"
 
     if ! app::venv::exists; then
         log::warn "Virtual environment not found"
-        echo "Run 'make app-install' or 'make app-install-dev' first"
+        echo "Run 'make app-sync' first."
         return 1
     fi
 
@@ -121,7 +126,7 @@ app::deps::check() {
     if command -v ruff >/dev/null 2>&1; then
         log::success "ruff: $(ruff --version 2>/dev/null | head -1 || echo 'found')"
     else
-        log::warn "ruff not found (install with: make app-install-dev)"
+        log::warn "ruff not found (install with: make app-sync-dev)"
     fi
 
     echo ""
@@ -130,20 +135,19 @@ app::deps::check() {
 import sys
 version = sys.version_info
 print(f'  Python {version.major}.{version.minor}.{version.micro}')
-if version >= (3, 13):
-    print('  ✅ Meets requirement (>=3.13)')
+if version >= (3, 14):
+    print('  ✅ Meets requirement (>=3.14)')
 else:
-    print(f'  ❌ Below minimum requirement (3.13+)')
+    print(f'  ❌ Below minimum requirement (3.14+)')
     sys.exit(1)
 " || missing=$((missing + 1))
 
     return $missing
 }
 
-# -----------------------------------------------------------------------------
-# UV-SPECIFIC COMMANDS
-# -----------------------------------------------------------------------------
+# --- UV-Specific Commands ---
 app::uv::sync() {
+    # Sync dependencies using uv.
     log::header "Syncing dependencies with uv"
 
     if ! app::venv::exists; then
@@ -157,7 +161,6 @@ app::uv::sync() {
 
     if [[ "$with_dev" == "1" ]]; then
         uv_args+=("--all-extras")
-        log::info "Including development dependencies"
     fi
 
     log::info "Running uv ${uv_args[*]}"
@@ -174,15 +177,14 @@ app::uv::sync() {
     fi
 }
 
-# -----------------------------------------------------------------------------
-# APPLICATION COMMANDS
-# -----------------------------------------------------------------------------
+# --- Application Commands ---
 app::run() {
+    # Run the application.
     log::header "Running Application"
 
     if ! app::venv::exists; then
         log::warn "Virtual environment not found"
-        echo "Run 'make app-install' or 'make app-install-dev' first"
+        echo "Run 'make app-sync' first"
         return 1
     fi
 
@@ -197,6 +199,7 @@ app::run() {
 }
 
 app::shell() {
+    # Start a Python REPL with project context.
     log::header "Python Shell"
 
     if ! app::venv::exists; then
@@ -220,15 +223,14 @@ app::shell() {
     cd "$PROJECT_ROOT" && python
 }
 
-# -----------------------------------------------------------------------------
-# CODE QUALITY TOOLS
-# -----------------------------------------------------------------------------
+# --- Code Quality Tools ---
 app::lint() {
+    # Lint code using Ruff.
     log::header "Linting Code (Ruff)"
 
     if ! command -v ruff >/dev/null 2>&1; then
         log::error "ruff not found in PATH"
-        echo "Install with: make app-install-dev"
+        echo "Install with: make app-sync-dev"
         return 1
     fi
 
@@ -254,11 +256,12 @@ app::lint() {
 }
 
 app::format() {
+    # Format code using Ruff.
     log::header "Formatting Code (Ruff)"
 
     if ! command -v ruff >/dev/null 2>&1; then
         log::error "ruff not found in PATH"
-        echo "Install with: make app-install-dev"
+        echo "Install with: make app-sync-dev"
         return 1
     fi
 
@@ -284,11 +287,12 @@ app::format() {
 }
 
 app::check() {
+    # Run comprehensive code checks.
     log::header "Checking Code (Ruff comprehensive)"
 
     if ! command -v ruff >/dev/null 2>&1; then
         log::error "ruff not found in PATH"
-        echo "Install with: make app-install-dev"
+        echo "Install with: make app-sync-dev"
         return 1
     fi
 
@@ -316,7 +320,7 @@ app::check() {
     echo ""
 
     if [[ $lint_status -eq 0 ]]; then
-        log::success "All checks passed! ✅"
+        log::success "All checks passed!"
         return 0
     else
         log::info "Some checks failed. Run 'make app-format' to auto-fix formatting issues."
@@ -325,11 +329,12 @@ app::check() {
 }
 
 app::fix() {
+    # Auto-fix code issues.
     log::header "Fixing Code Issues (Ruff)"
 
     if ! command -v ruff >/dev/null 2>&1; then
         log::error "ruff not found in PATH"
-        echo "Install with: make app-install-dev"
+        echo "Install with: make app-sync-dev"
         return 1
     fi
 
@@ -360,13 +365,14 @@ app::fix() {
     echo ""
     log::info "3. Running final check..."
     if app::check >/dev/null 2>&1; then
-        log::success "All issues fixed! ✅"
+        log::success "All issues fixed!"
     else
         log::info "Some issues remain. Check with 'make app-check'"
     fi
 }
 
 app::clean() {
+    # Clean Python artifacts.
     log::header "Cleaning Python Artifacts"
 
     local to_remove=(
@@ -416,10 +422,9 @@ app::clean() {
     fi
 }
 
-# -----------------------------------------------------------------------------
-# HELP
-# -----------------------------------------------------------------------------
+# --- Help ---
 app::help() {
+    # Display help information.
     cat << "EOF"
 Application Management Commands
 
@@ -444,9 +449,7 @@ Code Quality (Ruff):
 EOF
 }
 
-# -----------------------------------------------------------------------------
-# MAIN DISPATCHER
-# -----------------------------------------------------------------------------
+# --- Main Dispatcher ---
 main() {
     local command="${1:-help}"
 
@@ -501,4 +504,5 @@ main() {
     esac
 }
 
+# --- Execute Main ---
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
