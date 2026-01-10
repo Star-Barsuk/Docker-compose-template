@@ -17,13 +17,23 @@ include $(ROOT_DIR)/mks/app.mk
 
 .DEFAULT_GOAL := help
 
-.PHONY: help
+.PHONY: setup help 
 
+# -----------------------------------------------------------------------------
+# SETUP TARGET
+# -----------------------------------------------------------------------------
+setup:
+	@chmod +x scripts/setup.sh
+	@./scripts/setup.sh
+
+# -----------------------------------------------------------------------------
+# HELP TARGET
+# -----------------------------------------------------------------------------
 help:
 	@$(MAKE) --no-print-directory _help_env
-	@echo
+	@echo ""
 	@$(MAKE) --no-print-directory _help_secrets
-	@echo
+	@echo ""
 	@$(MAKE) --no-print-directory _help_docker
-	@echo
+	@echo ""
 	@$(MAKE) --no-print-directory _help_app
