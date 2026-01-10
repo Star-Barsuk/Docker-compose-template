@@ -1,18 +1,21 @@
 """
 Base configuration module.
 """
+
+from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
+
 from .security import SecretReader
 
 
 class Config:
     """Application configuration base class."""
 
-    def __init__(self, env: Optional[str] = None):
+    def __init__(self, env: str | None = None):
         self.env = env or self._detect_env()
 
         self._secret_reader = SecretReader()

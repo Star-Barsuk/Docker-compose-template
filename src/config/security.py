@@ -1,18 +1,20 @@
 """
 Secret reading utilities.
 """
+
+from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Optional
 
 
 class SecretReader:
     """Handles reading secrets from various sources."""
 
-    def __init__(self, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Path | None = None):
         self.project_root = project_root or Path(__file__).parent.parent.parent
 
-    def read_secret(self, secret_name: str, default: Optional[str] = None) -> str:
+    def read_secret(self, secret_name: str, default: str | None = None) -> str:
         """Read secret from Docker secrets, local files, or environment."""
         # Try Docker secrets first
         docker_secret_path = Path(f"/run/secrets/{secret_name}")
@@ -33,5 +35,5 @@ class SecretReader:
         try:
             with open(file_path) as f:
                 return f.read().strip()
-        except (IOError, OSError):
+        except OSError:
             return ""

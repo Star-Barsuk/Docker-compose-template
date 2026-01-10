@@ -1,15 +1,19 @@
 """
 Main application class.
 """
+
+from __future__ import annotations
+
+from datetime import datetime
 import os
 import platform
 import signal
 import sys
-from datetime import datetime
 
 import src.config
 from src.config.database import DatabaseConfig
 from src.database import DatabaseManager, SchemaManager
+
 from .heartbeat import HeartbeatService
 
 
@@ -27,6 +31,7 @@ class Application:
 
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""
+
         def signal_handler(signum, frame):
             print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
             self.should_exit = True
@@ -40,7 +45,9 @@ class Application:
         print("🚀 Database Application")
         print("=" * 50)
         print(f"🕒 Started at: {self.start_time.isoformat()}")
-        print(f"🐍 Python: {sys.version.split()[0]} ({platform.python_implementation()})")
+        print(
+            f"🐍 Python: {sys.version.split()[0]} ({platform.python_implementation()})"
+        )
         print(f"💻 OS: {platform.system()} {platform.release()}")
         print(f"📂 Working dir: {os.getcwd()}")
         print(f"🌍 Environment: {self.config.env}")
@@ -72,7 +79,7 @@ class Application:
 
         # Print statistics
         uptime = datetime.now() - self.start_time
-        print(f"📊 Statistics:")
+        print("📊 Statistics:")
         print(f"   Uptime: {uptime}")
         print(f"   Queries executed: {self.db.connection_stats['queries_executed']}")
         print(f"   Database errors: {self.db.connection_stats['errors']}")

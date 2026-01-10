@@ -1,8 +1,11 @@
 """
 Database connection handling.
 """
+
+from __future__ import annotations
+
 import asyncio
-from typing import Dict, Any
+
 import asyncpg
 
 from src.config.database import DatabaseConfig
@@ -15,7 +18,7 @@ class DatabaseConnection:
         self.db_config = db_config
         self.pool: asyncpg.Pool = None
         self.is_connected = False
-        self.connection_stats: Dict[str, int] = {
+        self.connection_stats: dict[str, int] = {
             "connections_created": 0,
             "queries_executed": 0,
             "errors": 0,
@@ -28,7 +31,7 @@ class DatabaseConnection:
 
         dsn = dsn or self.db_config.database_url
 
-        print(f"🔌 Connecting to database...")
+        print("🔌 Connecting to database...")
         print(f"   URL: {self.db_config.database_url_safe}")
         print(f"   Environment: {self.db_config.config.env}")
         print(f"   Docker: {'✅ Yes' if self.db_config.config.is_docker else '❌ No'}")
@@ -44,15 +47,17 @@ class DatabaseConnection:
                 return
 
             except asyncpg.InvalidPasswordError:
-                print(f"❌ Invalid database password")
+                print("❌ Invalid database password")
                 raise
             except asyncpg.ConnectionDoesNotExistError:
-                print(f"❌ Database does not exist")
+                print("❌ Database does not exist")
                 raise
             except (OSError, asyncpg.PostgresConnectionError) as e:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
-                    print(f"⚠️  Connection failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    wait_time = 2**attempt
+                    print(
+                        f"⚠️  Connection failed (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
                     print(f"   Retrying in {wait_time} seconds...")
                     await asyncio.sleep(wait_time)
                 else:
@@ -68,10 +73,10 @@ class DatabaseConnection:
             command_timeout=self.db_config.connect_timeout,
             statement_cache_size=0,
             server_settings={
-                'application_name': f'app-{self.db_config.config.env}',
-                'search_path': 'public',
-                'statement_timeout': '30000',
-            }
+                "application_name": f"app-{self.db_config.config.env}",
+                "search_path": "public",
+                "statement_timeout": "30000",
+            },
         )
 
     async def _test_connection(self) -> None:

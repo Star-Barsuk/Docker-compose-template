@@ -2,6 +2,8 @@
 Database schema management.
 """
 
+from __future__ import annotations
+
 
 class SchemaManager:
     """Manages database schema initialization."""
@@ -71,8 +73,7 @@ class SchemaManager:
         """Clean up old heartbeat records."""
         try:
             deleted = await self.db.fetchval(
-                "SELECT cleanup_old_heartbeats($1)",
-                keep_days
+                "SELECT cleanup_old_heartbeats($1)", keep_days
             )
             return deleted or 0
         except Exception:
