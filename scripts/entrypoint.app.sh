@@ -9,7 +9,6 @@ if [ -f /run/secrets/db_password ]; then
     unset DB_PASSWORD
 fi
 
-# Если аргументов нет, используем CMD из Dockerfile
 if [ $# -eq 0 ]; then
     echo "[INFO] No arguments provided, using default command: python -m src.main"
     exec python -m src.main

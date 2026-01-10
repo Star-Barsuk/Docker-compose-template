@@ -666,7 +666,6 @@ docker::check_ports() {
         log::success "All ports are available"
     else
         log::info "$busy_ports port(s) are busy"
-        echo "Check running services with: $0 ps"
     fi
 }
 
