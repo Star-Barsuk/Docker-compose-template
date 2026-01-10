@@ -4,7 +4,7 @@
 
 .PHONY: up stop down build \
 	clean logs shell \
-	ps stats df ports check-ports \
+	ps stats df ports ports-check \
 	validate \
 	_help_docker
 
@@ -53,15 +53,11 @@ df:
 	@bash $(SCRIPTS_DIR)/docker.sh df \
 		$(ARGS)
 
-inspect:
-	@bash $(SCRIPTS_DIR)/docker.sh inspect \
-		$(ARGS)
-
 ports:
 	@bash $(SCRIPTS_DIR)/docker.sh ports
 
-check-ports:
-	@bash $(SCRIPTS_DIR)/docker.sh check-ports
+ports-check:
+	@bash $(SCRIPTS_DIR)/docker.sh ports-check
 
 # -----------------------------------------------------------------------------
 # INTERACTIVE COMMANDS
@@ -99,7 +95,7 @@ _help_docker:
 	@echo "  make clean [TARGETS]   (containers|images|volumes|networks|cache|all)"
 	@echo ""
 	@echo "Monitoring:"
-	@echo "  make ps | stats | df | ports | check-ports"
+	@echo "  make ps | stats | df | ports | ports-check"
 	@echo ""
 	@echo "Interactive:"
 	@echo "  make logs [ARGS]       View logs"

@@ -614,7 +614,7 @@ docker::ports() {
     log::info "Host IP: $host_ip"
 }
 
-docker::check_ports() {
+docker::ports-check() {
     # Check port availability.
     log::header "Port Availability Check"
 
@@ -720,7 +720,7 @@ Monitoring & Inspection:
   stats                 Live container statistics
   df                    Disk usage analysis
   ports                 Show port mappings
-  check-ports           Check port availability
+  ports-check           Check port availability
 
 Cleanup:
   clean [TARGETS...]    Clean specific resources
@@ -765,8 +765,8 @@ main() {
         ps|stats|df|ports)
             docker::$cmd "${remaining_args[@]}"
             ;;
-        check-ports)
-            docker::check_ports "${remaining_args[@]}"
+        ports-check)
+            docker::ports-check "${remaining_args[@]}"
             ;;
         logs|shell)
             docker::$cmd "${remaining_args[@]}"
