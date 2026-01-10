@@ -7,7 +7,8 @@ import signal
 import sys
 from datetime import datetime
 
-import src.config as config
+import src.config
+from src.config.database import DatabaseConfig
 from src.database import DatabaseManager, SchemaManager
 from .heartbeat import HeartbeatService
 
@@ -16,9 +17,11 @@ class Application:
     """Main application class."""
 
     def __init__(self):
-        self.db = DatabaseManager()
+        self.config = src.config.config
+        self.db_config = DatabaseConfig(self.config)
+        self.db = DatabaseManager(self.db_config)
         self.schema = SchemaManager(self.db)
-        self.heartbeat = HeartbeatService(self.db)
+        self.heartbeat = HeartbeatService(self.db, self.config)
         self.should_exit = False
         self.start_time = datetime.now()
 
@@ -40,9 +43,8 @@ class Application:
         print(f"🐍 Python: {sys.version.split()[0]} ({platform.python_implementation()})")
         print(f"💻 OS: {platform.system()} {platform.release()}")
         print(f"📂 Working dir: {os.getcwd()}")
-        print(f"🌍 Environment: {config.config.env}")
-        print(f"🐳 Docker: {'✅ Yes' if config.config.is_docker else '❌ No'}")
-        print(f"🔧 Debug: {'✅ Yes' if config.config.debug else '❌ No'}")
+        print(f"🌍 Environment: {self.config.env}")
+        print(f"🐳 Docker: {'✅ Yes' if self.config.is_docker else '❌ No'}")
         print("-" * 50)
 
     async def startup(self):
@@ -83,7 +85,7 @@ class Application:
 
         try:
             await self.startup()
-            await self.heartbeat.run(self.should_exit)
+            await self.heartbeat.run(lambda: self.should_exit)
         except KeyboardInterrupt:
             print("\n🛑 Keyboard interrupt received")
         except Exception as e:

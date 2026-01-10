@@ -5,15 +5,14 @@ import asyncio
 from typing import Dict, Any
 import asyncpg
 
-from src.config import config
 from src.config.database import DatabaseConfig
 
 
 class DatabaseConnection:
     """Handles database connection lifecycle."""
 
-    def __init__(self):
-        self.db_config = DatabaseConfig(config)
+    def __init__(self, db_config: DatabaseConfig):
+        self.db_config = db_config
         self.pool: asyncpg.Pool = None
         self.is_connected = False
         self.connection_stats: Dict[str, int] = {
@@ -31,8 +30,8 @@ class DatabaseConnection:
 
         print(f"🔌 Connecting to database...")
         print(f"   URL: {self.db_config.database_url_safe}")
-        print(f"   Environment: {config.env}")
-        print(f"   Docker: {'✅ Yes' if config.is_docker else '❌ No'}")
+        print(f"   Environment: {self.db_config.config.env}")
+        print(f"   Docker: {'✅ Yes' if self.db_config.config.is_docker else '❌ No'}")
 
         max_retries = 5
         for attempt in range(max_retries):
@@ -69,7 +68,7 @@ class DatabaseConnection:
             command_timeout=self.db_config.connect_timeout,
             statement_cache_size=0,
             server_settings={
-                'application_name': f'app-{config.env}',
+                'application_name': f'app-{self.db_config.config.env}',
                 'search_path': 'public',
                 'statement_timeout': '30000',
             }

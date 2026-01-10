@@ -6,14 +6,13 @@ import platform
 import sys
 from datetime import datetime
 
-import src.config as config
-
 
 class HeartbeatService:
     """Manages application heartbeat."""
 
-    def __init__(self, db):
+    def __init__(self, db, config):
         self.db = db
+        self.config = config
         self.counter = 0
 
     async def run(self, should_exit_flag):
@@ -54,7 +53,7 @@ class HeartbeatService:
         """,
             f"heartbeat #{self.counter}",
             self.counter,
-            config.config.env,
+            self.config.env,
             '{"host": "' + platform.node() + '", "python_version": "' + sys.version.split()[0] + '"}'
         )
 
@@ -67,7 +66,7 @@ class HeartbeatService:
                 MAX(timestamp) as last_record
             FROM heartbeat
             WHERE environment = $1
-        """, config.config.env)
+        """, self.config.env)
 
         recent = await self.db.fetch("""
             SELECT
@@ -78,7 +77,7 @@ class HeartbeatService:
             WHERE environment = $1
             ORDER BY timestamp DESC
             LIMIT 3
-        """, config.config.env)
+        """, self.config.env)
 
         current_time = datetime.now()
         print(f"\n💓 Heartbeat #{self.counter} — {current_time.strftime('%H:%M:%S')}")
@@ -105,6 +104,6 @@ class HeartbeatService:
 
     async def _wait_next_heartbeat(self):
         """Wait for next heartbeat interval."""
-        interval = config.config.heartbeat_interval
+        interval = self.config.heartbeat_interval
         for _ in range(interval):
             await asyncio.sleep(1)

@@ -44,3 +44,8 @@ class Config:
     def is_docker(self) -> bool:
         """Check if running inside Docker."""
         return Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER") == "true"
+
+    @property
+    def heartbeat_interval(self) -> int:
+        """Get heartbeat interval in seconds."""
+        return int(os.getenv("HEARTBEAT_INTERVAL", "5"))

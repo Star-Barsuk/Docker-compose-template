@@ -1,13 +1,12 @@
 """
 Database schema management.
 """
-from .manager import DatabaseManager
 
 
 class SchemaManager:
     """Manages database schema initialization."""
 
-    def __init__(self, db_manager: DatabaseManager):
+    def __init__(self, db_manager):
         self.db = db_manager
 
     async def init_schema(self) -> None:
