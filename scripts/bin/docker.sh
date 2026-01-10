@@ -515,32 +515,185 @@ docker::df() {
     # Display Docker disk usage.
     log::header "Docker Disk Usage"
 
+    # First show system-wide usage
+    echo "System-wide Docker disk usage:"
+    echo "$(printf '─%.0s' {1..40})"
+    if ! docker system df; then
+        log::error "Failed to get Docker disk usage"
+        return 1
+    fi
+
+    echo ""
+    echo "Current Compose stack analysis:"
+    echo "$(printf '─%.0s' {1..40})"
+
     if ! load::environment >/dev/null 2>&1; then
-        log::warn "Cannot load environment, showing system-wide usage"
-        docker system df
+        log::warn "Cannot load environment, showing only system-wide usage"
         return 0
     fi
 
-    docker::_list_resources "Project Resources: ${COMPOSE_PROJECT_NAME:-unknown}"
+    # Get all services in the current stack
+    local services
+    services=($(compose::cmd config --services 2>/dev/null || true))
 
+    if [[ ${#services[@]} -eq 0 ]]; then
+        log::info "No services configured in current stack"
+        return 0
+    fi
+
+    # Collect all container IDs in the stack
+    local container_ids=()
+    local total_cpu=0
+    local total_memory=0
+    local total_containers=0
+
+    log::info "Stack services (${#services[@]}): ${services[*]}"
+
+    # Show resources for each service
     echo ""
-    echo "Detailed disk usage:"
+    printf "%-20s %-15s %-15s %-15s %s\n" "SERVICE" "STATUS" "CPU %" "MEM USAGE" "IMAGE"
+    echo "$(printf '=%.0s' {1..80})"
+
+    for service in "${services[@]}"; do
+        local container_id
+        container_id=$(compose::cmd ps -q "$service" 2>/dev/null || true)
+
+        if [[ -n "$container_id" ]]; then
+            total_containers=$((total_containers + 1))
+
+            # Get container stats
+            local container_stats
+            container_stats=$(docker stats --no-stream --format "{{.CPUPerc}} {{.MemUsage}} {{.Name}} {{.Container}}" "$container_id" 2>/dev/null || echo "")
+
+            if [[ -n "$container_stats" ]]; then
+                local cpu_perc mem_usage container_name
+                read -r cpu_perc mem_usage container_name _ <<< "$container_stats"
+
+                # Extract image name
+                local image_name
+                image_name=$(docker inspect --format='{{.Config.Image}}' "$container_id" 2>/dev/null || echo "unknown")
+
+                printf "%-20s %-15s %-15s %-15s %s\n" \
+                    "$service" \
+                    "RUNNING" \
+                    "$cpu_perc" \
+                    "$mem_usage" \
+                    "$image_name"
+
+                # Parse CPU percentage (remove %)
+                local cpu_num
+                cpu_num=$(echo "$cpu_perc" | sed 's/%//')
+                total_cpu=$(awk "BEGIN {printf \"%.2f\", $total_cpu + $cpu_num}")
+
+                # Parse memory usage
+                local mem_num unit
+                read -r mem_num unit <<< "$(echo "$mem_usage" | sed 's/[^0-9.]//g')"
+                if [[ "$unit" == "GiB" ]]; then
+                    mem_num=$(awk "BEGIN {printf \"%.2f\", $mem_num * 1024}")
+                elif [[ "$unit" == "KiB" ]]; then
+                    mem_num=$(awk "BEGIN {printf \"%.2f\", $mem_num / 1024}")
+                fi
+                total_memory=$(awk "BEGIN {printf \"%.2f\", $total_memory + $mem_num}")
+            else
+                printf "%-20s %-15s %-15s %-15s %s\n" \
+                    "$service" \
+                    "RUNNING" \
+                    "N/A" \
+                    "N/A" \
+                    "$(docker inspect --format='{{.Config.Image}}' "$container_id" 2>/dev/null || echo "unknown")"
+            fi
+        else
+            printf "%-20s %-15s %-15s %-15s %s\n" \
+                "$service" \
+                "STOPPED" \
+                "─" \
+                "─" \
+                "$(grep -A5 "^\s*$service:" docker/compose/docker-compose.core.yml 2>/dev/null | grep "image:" | head -1 | awk '{print $2}' || echo "not built")"
+        fi
+    done
+
+    # Show summary
+    echo ""
+    echo "Stack resource summary:"
+    echo "$(printf '─%.0s' {1..30})"
+    printf "  %-20s: %d/%d\n" "Containers running" "$total_containers" "${#services[@]}"
+    if [[ $total_containers -gt 0 ]]; then
+        printf "  %-20s: %.2f%%\n" "Total CPU usage" "$total_cpu"
+        printf "  %-20s: %.2f MiB\n" "Total memory usage" "$total_memory"
+    fi
+
+    # Calculate total disk usage for the stack
+    echo ""
+    echo "Disk usage by resource type:"
     echo "$(printf '─%.0s' {1..30})"
 
     local project_filter="label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-}"
 
-    local image_size=0
-    while read -r image_id; do
+    # Images
+    local image_ids=()
+    mapfile -t image_ids < <(docker images --filter "$project_filter" -q 2>/dev/null || true)
+    local total_image_size=0
+
+    for image_id in "${image_ids[@]}"; do
         [[ -z "$image_id" ]] && continue
         local size
         size=$(docker inspect --format='{{.Size}}' "$image_id" 2>/dev/null || echo "0")
-        image_size=$((image_size + size))
-    done < <(docker images --filter "$project_filter" -q 2>/dev/null)
+        total_image_size=$((total_image_size + size))
+    done
 
-    if [[ $image_size -gt 0 ]]; then
+    if [[ $total_image_size -gt 0 ]]; then
         local human_size
-        human_size=$(echo "$image_size" | awk '{printf "%.2f MB", $1/1024/1024}')
-        echo "  Images total size: $human_size"
+        human_size=$(echo "$total_image_size" | awk '{printf "%.2f MB", $1/1024/1024}')
+        printf "  %-15s: %s (%d images)\n" "Images" "$human_size" "${#image_ids[@]}"
+    else
+        printf "  %-15s: %s\n" "Images" "0 MB (not built)"
+    fi
+
+    # Volumes
+    local volume_count
+    volume_count=$(docker volume ls --filter "$project_filter" -q 2>/dev/null | wc -l)
+
+    if [[ $volume_count -gt 0 ]]; then
+        local volume_size=0
+        while read -r volume_name; do
+            [[ -z "$volume_name" ]] && continue
+            local mountpoint
+            mountpoint=$(docker volume inspect --format='{{.Mountpoint}}' "$volume_name" 2>/dev/null || echo "")
+            if [[ -n "$mountpoint" ]] && [[ -d "$mountpoint" ]]; then
+                local vol_size
+                vol_size=$(du -sb "$mountpoint" 2>/dev/null | awk '{print $1}' || echo "0")
+                volume_size=$((volume_size + vol_size))
+            fi
+        done < <(docker volume ls --filter "$project_filter" -q 2>/dev/null)
+
+        if [[ $volume_size -gt 0 ]]; then
+            local human_size
+            human_size=$(echo "$volume_size" | awk '{printf "%.2f MB", $1/1024/1024}')
+            printf "  %-15s: %s (%d volumes)\n" "Volumes" "$human_size" "$volume_count"
+        else
+            printf "  %-15s: %s (%d volumes)\n" "Volumes" "unknown size" "$volume_count"
+        fi
+    else
+        printf "  %-15s: %s\n" "Volumes" "0 MB (none)"
+    fi
+
+    # Networks
+    local network_count
+    network_count=$(docker network ls --filter "$project_filter" -q 2>/dev/null | wc -l)
+    printf "  %-15s: %s (%d networks)\n" "Networks" "minimal" "$network_count"
+
+    # Show all containers in the project
+    echo ""
+    echo "Project containers status:"
+    echo "$(printf '─%.0s' {1..30})"
+
+    local all_containers
+    all_containers=$(docker ps -a --filter "$project_filter" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}" 2>/dev/null || true)
+
+    if [[ -n "$all_containers" ]]; then
+        echo "$all_containers"
+    else
+        echo "  No containers found"
     fi
 }
 
@@ -693,6 +846,65 @@ docker::_list_resources() {
     local network_count
     network_count=$(docker network ls --filter "$project_filter" -q 2>/dev/null | wc -l)
     printf "  %-15s: %d\n" "Networks" "$network_count"
+}
+
+docker::get_service_image() {
+    # Get image name for a service from compose files
+    local service_name="$1"
+    local compose_file="${2:-docker/compose/docker-compose.core.yml}"
+
+    if [[ ! -f "$compose_file" ]]; then
+        echo "unknown"
+        return
+    fi
+
+    # Try to extract image from compose file
+    local image_name
+    image_name=$(awk -v service="$service_name" '
+        $0 ~ "^[[:space:]]*" service ":" { in_service=1 }
+        in_service && /^[[:space:]]*image:/ {
+            gsub(/^[[:space:]]*image:[[:space:]]*/, "", $0)
+            gsub(/^["'\'']|["'\'']$/, "", $0)
+            print $0
+            exit
+        }
+        /^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*#/ && $0 !~ "^[[:space:]]*" service ":" {
+            if (in_service) exit
+        }
+    ' "$compose_file")
+
+    if [[ -n "$image_name" ]]; then
+        echo "$image_name"
+    else
+        # Try from extends
+        local extends
+        extends=$(awk -v service="$service_name" '
+            $0 ~ "^[[:space:]]*" service ":" { in_service=1 }
+            in_service && /^[[:space:]]*extends:/ {
+                getline
+                if (/file:/) {
+                    gsub(/.*file:[[:space:]]*/, "", $0)
+                    gsub(/^["'\'']|["'\'']$/, "", $0)
+                    file=$0
+                    getline
+                    if (/service:/) {
+                        gsub(/.*service:[[:space:]]*/, "", $0)
+                        gsub(/^["'\'']|["'\'']$/, "", $0)
+                        print file ":" $0
+                        exit
+                    }
+                }
+            }
+        ' "$compose_file")
+
+        if [[ -n "$extends" ]]; then
+            local extends_file="${extends%:*}"
+            local extends_service="${extends#*:}"
+            docker::get_service_image "$extends_service" "$extends_file"
+        else
+            echo "unknown"
+        fi
+    fi
 }
 
 # --- Help ---
